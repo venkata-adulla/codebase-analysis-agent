@@ -1,10 +1,23 @@
 import axios from 'axios'
 
+const getDefaultApiUrl = () => {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL
+  }
+  if (typeof window !== 'undefined') {
+    // Use backend host at same origin by default in workspace preview scenarios.
+    return `${window.location.protocol}//${window.location.hostname}:8000`
+  }
+  return 'http://localhost:8000'
+}
+
+const apiKey = process.env.NEXT_PUBLIC_API_KEY || 'dev-local-key'
+
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  baseURL: getDefaultApiUrl(),
   headers: {
     'Content-Type': 'application/json',
-    ...(process.env.NEXT_PUBLIC_API_KEY ? { 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY } : {}),
+    'X-API-Key': apiKey,
   },
 })
 

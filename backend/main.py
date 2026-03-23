@@ -31,11 +31,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware — explicit list + regex so any localhost / 127.0.0.1 dev port works
+# CORS middleware — allow localhost + ip + preview URLs in dev environments.
+# In production, restrict this to known origins only.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
