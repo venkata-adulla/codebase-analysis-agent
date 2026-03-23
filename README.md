@@ -44,7 +44,15 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
-4. Start Docker services:
+4. Set required keys (or add to .env):
+```bash
+export GITHUB_TOKEN=<your-github-token>  # optional for public repos, required for private repos
+export NEXT_PUBLIC_API_KEY=dev-local-key
+# Optional to override API url
+export NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+5. Start Docker services:
 ```bash
 docker-compose up -d
 ```

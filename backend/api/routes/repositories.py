@@ -1,5 +1,5 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
@@ -80,7 +80,8 @@ def run_analysis_task(repository_id: str, repo_path: str):
 @router.post("/analyze")
 @limiter.limit("10/minute")
 async def analyze_repository(
-    request: RepositoryAnalyzeRequest,
+    request: Request,
+    payload: RepositoryAnalyzeRequest,
     background_tasks: BackgroundTasks,
     api_key: bool = Depends(verify_api_key)
 ):
@@ -90,19 +91,19 @@ async def analyze_repository(
     
     try:
         # Determine repository source and clone/use it
-        if request.github_owner and request.github_repo:
+        if payload.github_owner and payload.github_repo:
             repo_path = repo_manager.clone_from_github(
-                request.github_owner,
-                request.github_repo,
-                request.branch
+                payload.github_owner,
+                payload.github_repo,
+                payload.branch
             )
-        elif request.repository_url:
+        elif payload.repository_url:
             repo_path = repo_manager.clone_from_url(
-                request.repository_url,
-                request.branch
+                payload.repository_url,
+                payload.branch
             )
-        elif request.repository_path:
-            repo_path = repo_manager.use_local_path(request.repository_path)
+        elif payload.repository_path:
+            repo_path = repo_manager.use_local_path(payload.repository_path)
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -122,6 +123,11 @@ async def analyze_repository(
             "status": "queued",
             "message": "Analysis queued"
         }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

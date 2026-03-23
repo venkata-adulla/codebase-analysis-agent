@@ -34,25 +34,28 @@ class RepositoryManager:
         branch: Optional[str] = None
     ) -> str:
         """Clone a repository from GitHub."""
-        if not self.github_client:
-            raise ValueError("GitHub token not configured")
-        
+        clone_url = f"https://github.com/{owner}/{repo}.git"
+
+        if self.github_client:
+            try:
+                github_repo = self.github_client.get_repo(f"{owner}/{repo}")
+                clone_url = github_repo.clone_url
+            except Exception as e:
+                logger.warning(f"Github token available but unable to resolve repo via API: {e}. Falling back to https URL")
+
         try:
-            github_repo = self.github_client.get_repo(f"{owner}/{repo}")
-            clone_url = github_repo.clone_url
-            
             repo_id = str(uuid.uuid4())
             local_path = self.repositories_dir / repo_id
-            
+
             # Clone repository
             if branch:
                 Repo.clone_from(clone_url, str(local_path), branch=branch)
             else:
                 Repo.clone_from(clone_url, str(local_path))
-            
+
             logger.info(f"Cloned {owner}/{repo} to {local_path}")
             return str(local_path)
-            
+
         except Exception as e:
             logger.error(f"Failed to clone from GitHub: {e}")
             raise
