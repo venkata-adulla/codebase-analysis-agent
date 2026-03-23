@@ -14,7 +14,7 @@ from api.routes import (
     tech_debt
 )
 from core.config import get_settings
-from core.database import close_neo4j_driver
+from core.database import close_neo4j_driver, init_db
 
 # Configure logging
 logging.basicConfig(
@@ -107,6 +107,13 @@ def health_check():
         "status": "ok",
         "service": "codebase-analysis-agent"
     }
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize resources on startup."""
+    init_db()
+    logger.info("Startup complete: DB ready")
 
 
 @app.on_event("shutdown")

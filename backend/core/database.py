@@ -110,3 +110,18 @@ def get_redis_client():
             logger.error(f"Failed to connect to Redis: {e}")
             raise
     return _redis_client
+
+
+def init_db():
+    """Ensure SQLAlchemy models are imported and database tables exist."""
+    # Import models so that all declarative classes are registered in Base.metadata
+    import models.repository  # noqa: F401
+    import models.service  # noqa: F401
+    import models.tech_debt  # noqa: F401
+
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created/validated successfully")
+    except Exception as e:
+        logger.error(f"Failed to create or validate database tables: {e}")
+        raise
