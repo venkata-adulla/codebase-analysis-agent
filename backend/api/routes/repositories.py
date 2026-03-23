@@ -17,6 +17,9 @@ from agents.human_review_agent import HumanReviewAgent
 
 router = APIRouter()
 
+from core.database import SessionLocal
+from models.repository import Repository
+
 # Initialize services
 repo_manager = RepositoryManager()
 orchestrator = AgentOrchestrator()
@@ -110,14 +113,33 @@ async def analyze_repository(
                 detail="Must provide repository_url, repository_path, or github_owner/github_repo"
             )
         
+        # Persist repository record so other endpoints (reports/metrics) can reference it
+        db = SessionLocal()
+        try:
+            repo = Repository(
+                id=repository_id,
+                name=payload.github_repo or payload.repository_url or repository_id,
+                url=payload.repository_url,
+                local_path=repo_path,
+                github_owner=payload.github_owner,
+                github_repo=payload.github_repo,
+                branch=payload.branch or "main",
+                status="queued",
+                progress=0.0,
+            )
+            db.add(repo)
+            db.commit()
+        finally:
+            db.close()
+
         # Start analysis in background
         active_analyses[repository_id] = {
             "status": "queued",
             "progress": 0.0,
         }
-        
+
         background_tasks.add_task(run_analysis_task, repository_id, repo_path)
-        
+
         return {
             "repository_id": repository_id,
             "status": "queued",
