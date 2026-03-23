@@ -1,24 +1,20 @@
 import axios from 'axios'
 
-const getDefaultApiUrl = () => {
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL
-  }
-  if (typeof window !== 'undefined') {
-    // Use backend host at same origin by default in workspace preview scenarios.
-    return `${window.location.protocol}//${window.location.hostname}:8000`
-  }
-  return 'http://localhost:8000'
-}
-
 const apiKey = process.env.NEXT_PUBLIC_API_KEY || 'dev-local-key'
 
 const api = axios.create({
-  baseURL: getDefaultApiUrl(),
+  baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
     'X-API-Key': apiKey,
   },
+})
+
+api.interceptors.request.use((config) => {
+  if (!config.baseURL?.startsWith('/api') && process.env.NEXT_PUBLIC_API_URL) {
+    config.baseURL = process.env.NEXT_PUBLIC_API_URL
+  }
+  return config
 })
 
 // Add request interceptor to include auth token if available
