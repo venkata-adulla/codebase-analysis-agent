@@ -88,7 +88,7 @@ export default function AnalyzePage() {
     queryKey: ['repo-status', activeRepoId],
     queryFn: async () => {
       if (!activeRepoId) return null
-      const res = await api.get(`/api/repositories/${activeRepoId}/status`)
+      const res = await api.get(`/repositories/${activeRepoId}/status`)
       return res.data as {
         repository_id: string
         status: string
