@@ -14,7 +14,7 @@ Two-tier monorepo: Python FastAPI backend (`backend/`) and Next.js 14 frontend (
 | **Neo4j** | `sudo docker compose up -d neo4j` | 7474 (HTTP), 7687 (Bolt) |
 | **Redis** | `sudo docker compose up -d redis` | 6379 |
 | **Qdrant** | `sudo docker compose up -d qdrant` | 6333 |
-| **Backend** | `cd backend && uvicorn main:app --reload` | 8000 |
+| **Backend** | `cd backend && uvicorn main:app --host 0.0.0.0 --port 8000` | 8000 |
 | **Frontend** | `cd frontend && npm run dev` | 3000 |
 
 ### Starting all infrastructure
@@ -50,10 +50,12 @@ alembic stamp head
 
 ### Backend notes
 
+- **Do NOT use `--reload`** when running the backend with `uvicorn`. The repo clone step writes files into `backend/repositories/`, which triggers uvicorn's file watcher to restart the process, wiping the in-memory `active_analyses` dict and losing all analysis state. Run without `--reload` for stability.
 - No test framework or linter is configured for the backend.
 - Config defaults in `backend/core/config.py` match Docker Compose credentials — no `.env` file is needed for local dev.
 - `OPENAI_API_KEY` and `GITHUB_TOKEN` are optional; features degrade gracefully without them.
 - The backend runs Alembic `upgrade head` on startup via `init_db()`.
+- Analysis completes with status "paused" when the human_review_agent creates checkpoints for ambiguous dependencies. This is expected human-in-the-loop behavior.
 
 ### Lint / Build / Test
 
