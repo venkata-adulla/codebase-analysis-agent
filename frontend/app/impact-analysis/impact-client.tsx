@@ -1,0 +1,176 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
+import { useMutation } from '@tanstack/react-query'
+import { ExternalLink } from 'lucide-react'
+import api from '@/lib/api'
+import { PageHeader } from '@/components/layout/page-header'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
+
+const LS_KEY = 'caa:lastRepositoryId'
+
+export function ImpactClient() {
+  const searchParams = useSearchParams()
+  const repoParam = searchParams.get('repo')
+
+  const [changeDescription, setChangeDescription] = useState('')
+  const [repositoryId, setRepositoryId] = useState('')
+
+  useEffect(() => {
+    if (repoParam) {
+      setRepositoryId(repoParam)
+      return
+    }
+    try {
+      const ls = localStorage.getItem(LS_KEY)
+      if (ls) setRepositoryId(ls)
+    } catch {
+      /* ignore */
+    }
+  }, [repoParam])
+
+  const { data: analysis, mutate: runAnalysis, isPending } = useMutation({
+    mutationFn: async (data: { repository_id: string; change_description: string }) => {
+      const response = await api.post('/api/impact-analysis/analyze', data)
+      return response.data
+    },
+  })
+
+  const handleAnalyze = () => {
+    if (repositoryId && changeDescription) {
+      runAnalysis({
+        repository_id: repositoryId,
+        change_description: changeDescription,
+      })
+    }
+  }
+
+  return (
+    <div className="space-y-8">
+      <PageHeader
+        title="Impact analysis"
+        description="Describe a proposed change and assess blast radius using the dependency graph and service metadata."
+        actions={
+          <Link
+            href="/analyze"
+            className={cn(
+              buttonVariants({ variant: 'outline', size: 'sm' }),
+              'inline-flex items-center gap-1.5'
+            )}
+          >
+            New analysis
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Link>
+        }
+      />
+
+      <Card className="border-border/80 bg-card/50">
+        <CardHeader>
+          <CardTitle className="text-base">Run assessment</CardTitle>
+          <CardDescription>
+            Requires a repository ID from a completed or in-progress analysis run.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="impact-repo">Repository ID</Label>
+            <Input
+              id="impact-repo"
+              value={repositoryId}
+              onChange={(e) => setRepositoryId(e.target.value)}
+              placeholder="Paste repository ID"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="change">Change description</Label>
+            <textarea
+              id="change"
+              value={changeDescription}
+              onChange={(e) => setChangeDescription(e.target.value)}
+              className={cn(
+                'min-h-[120px] w-full rounded-lg border border-input bg-background/60 px-3 py-2 text-sm text-foreground shadow-inner',
+                'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+              )}
+              placeholder="Example: Replace synchronous HTTP calls in the billing service with async messaging…"
+            />
+          </div>
+
+          <Button
+            onClick={handleAnalyze}
+            disabled={isPending || !repositoryId || !changeDescription.trim()}
+          >
+            {isPending ? 'Analyzing…' : 'Analyze impact'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {analysis && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Results</CardTitle>
+            <CardDescription>Impact summary for the requested change.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div>
+              <Badge
+                variant={
+                  analysis.risk_level === 'critical' || analysis.risk_level === 'high'
+                    ? 'destructive'
+                    : analysis.risk_level === 'medium'
+                      ? 'warning'
+                      : 'success'
+                }
+                className="uppercase tracking-wide"
+              >
+                Risk: {analysis.risk_level}
+              </Badge>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-sm font-semibold text-foreground">
+                Impacted services ({analysis.total_impacted ?? 0})
+              </h3>
+              <ul className="space-y-2">
+                {analysis.impacted_services?.map((service: any, index: number) => (
+                  <li
+                    key={index}
+                    className="rounded-lg border border-border/80 bg-background/40 p-4"
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-medium text-foreground">{service.service_name}</p>
+                        <p className="text-sm text-muted-foreground">{service.reason}</p>
+                      </div>
+                      <span className="text-sm font-semibold tabular-nums text-primary">
+                        {(service.impact_score * 100).toFixed(0)}% impact
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {analysis.recommendations && analysis.recommendations.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-foreground">Recommendations</h3>
+                <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
+                  {analysis.recommendations.map((rec: string, index: number) => (
+                    <li key={index}>{rec}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}

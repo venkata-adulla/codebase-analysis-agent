@@ -14,7 +14,10 @@ import ReactFlow, {
   Connection,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
+import { Network } from 'lucide-react'
 import api from '@/lib/api'
+import { PageHeader } from '@/components/layout/page-header'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function DependencyGraphPage() {
   const { data: graphData, isLoading } = useQuery({
@@ -28,7 +31,6 @@ export default function DependencyGraphPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
 
-  // Transform API data to React Flow format
   useQuery({
     queryKey: ['transform-graph', graphData],
     queryFn: () => {
@@ -62,36 +64,50 @@ export default function DependencyGraphPage() {
     [setEdges]
   )
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen p-8">
-        <div className="max-w-7xl mx-auto">
-          <h1 className="text-3xl font-bold mb-8">Dependency Graph</h1>
-          <div className="text-center py-12">Loading...</div>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">Dependency Graph</h1>
-        <div style={{ width: '100%', height: '600px', border: '1px solid #ccc' }}>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            fitView
-          >
-            <Background />
-            <Controls />
-            <MiniMap />
-          </ReactFlow>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Dependency graph"
+        description="Service-level dependencies and relationships loaded from the graph store."
+      />
+
+      <Card className="overflow-hidden border-border/80">
+        <CardHeader className="border-b border-border/80 bg-card/50 pb-4">
+          <div className="flex items-center gap-2">
+            <Network className="h-5 w-5 text-primary" />
+            <div>
+              <CardTitle className="text-base">Topology</CardTitle>
+              <CardDescription>Pan, zoom, and inspect nodes. Data reflects the latest graph API response.</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="flex h-[420px] items-center justify-center text-sm text-muted-foreground">
+              Loading graph…
+            </div>
+          ) : (
+            <div className="h-[min(70vh,640px)] min-h-[420px] w-full bg-muted/20">
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                fitView
+                className="bg-transparent"
+              >
+                <Background gap={20} size={1} color="hsl(217 33% 22%)" />
+                <Controls className="!m-3 !rounded-lg !border-border !bg-card !shadow-lg" />
+                <MiniMap
+                  className="!m-3 !rounded-lg !border-border !bg-card"
+                  maskColor="hsl(222 47% 6% / 0.7)"
+                />
+              </ReactFlow>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

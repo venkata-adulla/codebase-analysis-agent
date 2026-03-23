@@ -45,10 +45,10 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
     : []
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
       {/* Debt Score Gauge */}
-      <div className="p-6 border rounded-lg">
-        <h3 className="text-lg font-semibold mb-4">Overall Debt Score</h3>
+      <div className="rounded-xl border border-border/80 bg-card/50 p-6">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">Overall debt score</h3>
         <div className="text-center">
           <div className="relative inline-block">
             <div
@@ -57,10 +57,10 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
             >
               {debtScore.toFixed(1)}
             </div>
-            <div className="text-sm text-gray-600 mt-2">out of 100</div>
+            <div className="mt-2 text-sm text-muted-foreground">out of 100</div>
           </div>
           <div className="mt-4">
-            <div className="w-full bg-gray-200 rounded-full h-4">
+            <div className="h-4 w-full rounded-full bg-muted">
               <div
                 className="h-4 rounded-full transition-all"
                 style={{
@@ -70,7 +70,7 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
               />
             </div>
           </div>
-          <p className="text-sm text-gray-600 mt-2">
+          <p className="mt-2 text-sm text-muted-foreground">
             {debtScore > 75
               ? 'Critical debt level - Immediate action required'
               : debtScore > 50
@@ -83,8 +83,8 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
       </div>
 
       {/* Category Distribution */}
-      <div className="p-6 border rounded-lg">
-        <h3 className="text-lg font-semibold mb-4">Debt by Category</h3>
+      <div className="rounded-xl border border-border/80 bg-card/50 p-6">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">Debt by category</h3>
         {categoryData.length > 0 ? (
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
@@ -102,43 +102,55 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
                   <Cell key={`cell-${index}`} fill={Object.values(COLORS)[index % 4]} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'hsl(222 47% 8%)',
+                  border: '1px solid hsl(217 33% 20%)',
+                  borderRadius: 8,
+                }}
+              />
             </PieChart>
           </ResponsiveContainer>
         ) : (
-          <div className="text-center py-8 text-gray-500">No data available</div>
+          <div className="py-8 text-center text-muted-foreground">No data available</div>
         )}
       </div>
 
       {/* Severity Distribution */}
-      <div className="p-6 border rounded-lg">
-        <h3 className="text-lg font-semibold mb-4">Debt by Severity</h3>
+      <div className="rounded-xl border border-border/80 bg-card/50 p-6">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">Debt by severity</h3>
         {severityData.length > 0 ? (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={severityData}>
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="value" fill="#8884d8" />
+              <XAxis dataKey="name" stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+              <YAxis stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'hsl(222 47% 8%)',
+                  border: '1px solid hsl(217 33% 20%)',
+                  borderRadius: 8,
+                }}
+              />
+              <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <div className="text-center py-8 text-gray-500">No data available</div>
+          <div className="py-8 text-center text-muted-foreground">No data available</div>
         )}
       </div>
 
       {/* Category Scores */}
-      <div className="p-6 border rounded-lg">
-        <h3 className="text-lg font-semibold mb-4">Category Scores</h3>
+      <div className="rounded-xl border border-border/80 bg-card/50 p-6 md:col-span-2">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">Category scores</h3>
         {categoryScores.length > 0 ? (
           <div className="space-y-3">
             {categoryScores.map((item) => (
               <div key={item.name}>
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm">{item.name}</span>
-                  <span className="text-sm font-semibold">{item.score.toFixed(1)}</span>
+                <div className="mb-1 flex justify-between">
+                  <span className="text-sm text-foreground">{item.name}</span>
+                  <span className="text-sm font-semibold text-foreground">{item.score.toFixed(1)}</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="h-2 w-full rounded-full bg-muted">
                   <div
                     className="h-2 rounded-full"
                     style={{
@@ -158,7 +170,7 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
             ))}
           </div>
         ) : (
-          <div className="text-center py-8 text-gray-500">No data available</div>
+          <div className="py-8 text-center text-muted-foreground">No data available</div>
         )}
       </div>
     </div>

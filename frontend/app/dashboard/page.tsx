@@ -1,64 +1,164 @@
 'use client'
 
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import axios from 'axios'
+import { Activity, ArrowRight, FolderGit2, GitBranch } from 'lucide-react'
+import api from '@/lib/api'
+import { PageHeader } from '@/components/layout/page-header'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+type RepoRow = { id: string; status?: string; progress?: number; name?: string }
 
 export default function DashboardPage() {
   const { data: repositories, isLoading } = useQuery({
     queryKey: ['repositories'],
     queryFn: async () => {
-      const response = await axios.get(`${API_URL}/api/repositories/`, {
-        headers: { 'X-API-Key': 'dev-local-key' }
-      })
-      return response.data.repositories || []
+      const response = await api.get('/api/repositories/')
+      return (response.data.repositories || []) as RepoRow[]
     },
   })
 
+  const statusVariant = (s?: string) => {
+    const v = (s || '').toLowerCase()
+    if (v === 'failed' || v === 'error') return 'destructive' as const
+    if (v === 'completed' || v === 'complete' || v === 'success') return 'success' as const
+    if (v === 'queued' || v === 'running') return 'warning' as const
+    return 'muted' as const
+  }
+
   return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">Dashboard</h1>
-        
-        {isLoading ? (
-          <div className="text-center py-12">Loading...</div>
-        ) : (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="p-6 border rounded-lg">
-                <h3 className="text-lg font-semibold mb-2">Repositories</h3>
-                <p className="text-3xl font-bold">{repositories?.length || 0}</p>
-              </div>
-              
-              <div className="p-6 border rounded-lg">
-                <h3 className="text-lg font-semibold mb-2">Services</h3>
-                <p className="text-3xl font-bold">-</p>
-              </div>
-              
-              <div className="p-6 border rounded-lg">
-                <h3 className="text-lg font-semibold mb-2">Analyses</h3>
-                <p className="text-3xl font-bold">-</p>
-              </div>
+    <div className="space-y-8">
+      <PageHeader
+        title="Dashboard"
+        description="Track repository analyses initiated from this session. IDs are generated when you start a run from Analyze or the API."
+        actions={
+          <Link
+            href="/analyze"
+            className={cn(buttonVariants({ size: 'sm' }), 'gap-2 shadow-glow')}
+          >
+            <GitBranch className="h-4 w-4" />
+            Analyze repository
+          </Link>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card className="border-border/80 bg-card/50">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Repositories</CardDescription>
+              <FolderGit2 className="h-4 w-4 text-muted-foreground" />
             </div>
-            
-            <div className="border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Recent Repositories</h2>
-              {repositories && repositories.length > 0 ? (
-                <ul className="space-y-2">
-                  {repositories.map((repo: any) => (
-                    <li key={repo.id} className="p-3 border rounded">
-                      {repo.name || repo.id}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-gray-500">No repositories analyzed yet</p>
-              )}
+            <CardTitle className="text-3xl tabular-nums">
+              {isLoading ? '—' : repositories?.length ?? 0}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card className="border-border/80 bg-card/50">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Active / queued</CardDescription>
+              <Activity className="h-4 w-4 text-muted-foreground" />
             </div>
-          </div>
-        )}
+            <CardTitle className="text-3xl tabular-nums">
+              {isLoading
+                ? '—'
+                : repositories?.filter((r) =>
+                    ['queued', 'running'].includes((r.status || '').toLowerCase())
+                  ).length ?? 0}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card className="border-border/80 bg-card/50">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Completed</CardDescription>
+              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            </div>
+            <CardTitle className="text-3xl tabular-nums">
+              {isLoading
+                ? '—'
+                : repositories?.filter((r) =>
+                    ['completed', 'complete', 'success'].includes((r.status || '').toLowerCase())
+                  ).length ?? 0}
+            </CardTitle>
+          </CardHeader>
+        </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <div>
+            <CardTitle className="text-base">Recent analyses</CardTitle>
+            <CardDescription>
+              In-memory session from the API process. Restarting the backend clears this list.
+            </CardDescription>
+          </div>
+          <Link
+            href="/analyze"
+            className={cn(
+              buttonVariants({ variant: 'ghost', size: 'sm' }),
+              'text-primary hover:text-primary'
+            )}
+          >
+            New analysis
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </Link>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
+          ) : repositories && repositories.length > 0 ? (
+            <ul className="divide-y divide-border/80">
+              {repositories.map((repo) => (
+                <li
+                  key={repo.id}
+                  className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <p className="font-mono text-sm text-foreground break-all">{repo.id}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {repo.name ? `Name: ${repo.name}` : 'Repository analysis'}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <Badge variant={statusVariant(repo.status)} className="uppercase">
+                      {repo.status || 'unknown'}
+                    </Badge>
+                    {typeof repo.progress === 'number' && (
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {Math.round(repo.progress * 100)}%
+                      </span>
+                    )}
+                    <Link
+                      href={`/tech-debt?repo=${encodeURIComponent(repo.id)}`}
+                      className={cn(
+                        buttonVariants({ variant: 'outline', size: 'sm' }),
+                        'hidden sm:inline-flex'
+                      )}
+                    >
+                      Tech debt
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 py-14 text-center">
+              <p className="mb-4 text-sm text-muted-foreground">
+                No analyses yet. Start by cloning a repository from the Analyze workspace.
+              </p>
+              <Link href="/analyze" className={cn(buttonVariants({ size: 'sm' }), 'gap-2')}>
+                <GitBranch className="h-4 w-4" />
+                Go to Analyze
+              </Link>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

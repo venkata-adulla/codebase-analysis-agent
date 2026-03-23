@@ -1,13 +1,18 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
+import { AppShell } from '@/components/layout/app-shell'
 
-const inter = Inter({ subsets: ['latin'] })
+const sans = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'Codebase Analysis Agent',
-  description: 'AI-powered codebase analysis and dependency mapping system',
+  description: 'Enterprise AI-powered codebase analysis, dependency mapping, and impact assessment.',
 }
 
 export default function RootLayout({
@@ -16,9 +21,11 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
-        <Providers>{children}</Providers>
+    <html lang="en" className="dark">
+      <body className={`${sans.variable} font-sans`}>
+        <Providers>
+          <AppShell>{children}</AppShell>
+        </Providers>
       </body>
     </html>
   )

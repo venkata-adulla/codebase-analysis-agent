@@ -1,76 +1,134 @@
 import Link from 'next/link'
+import {
+  Activity,
+  ArrowRight,
+  BarChart3,
+  Bot,
+  GitBranch,
+  Layers,
+  LayoutDashboard,
+  Shield,
+  Sparkles,
+} from 'lucide-react'
+import { PageHeader } from '@/components/layout/page-header'
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+
+const modules = [
+  {
+    href: '/analyze',
+    title: 'Analyze repository',
+    description: 'Paste a Git URL, GitHub coordinates, or local path to run the full pipeline.',
+    icon: GitBranch,
+    highlight: true,
+  },
+  {
+    href: '/dashboard',
+    title: 'Dashboard',
+    description: 'Live overview of queued and completed analyses.',
+    icon: LayoutDashboard,
+  },
+  {
+    href: '/dependency-graph',
+    title: 'Dependency graph',
+    description: 'Interactive dependency and service topology.',
+    icon: Layers,
+  },
+  {
+    href: '/services',
+    title: 'Service inventory',
+    description: 'Catalog of discovered services and documentation.',
+    icon: BarChart3,
+  },
+  {
+    href: '/impact-analysis',
+    title: 'Impact analysis',
+    description: 'Change impact, risk scoring, and recommendations.',
+    icon: Shield,
+  },
+  {
+    href: '/agent-status',
+    title: 'Agents & review',
+    description: 'Human-in-the-loop checkpoints and agent activity.',
+    icon: Bot,
+  },
+  {
+    href: '/tech-debt',
+    title: 'Technical debt',
+    description: 'Debt metrics, remediation plans, and trends.',
+    icon: Activity,
+  },
+]
 
 export default function Home() {
   return (
-    <main className="min-h-screen p-8">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8">Codebase Analysis Agent</h1>
-        <p className="text-lg mb-8 text-gray-600 dark:text-gray-400">
-          AI-powered codebase analysis and dependency mapping system
-        </p>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Link
-            href="/dashboard"
-            className="p-6 border rounded-lg hover:shadow-lg transition-shadow"
-          >
-            <h2 className="text-xl font-semibold mb-2">Dashboard</h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Overview of analyzed repositories and services
+    <div className="space-y-12">
+      <section className="relative overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-primary/10 via-card to-card p-8 shadow-glow md:p-10">
+        <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/20 blur-3xl" />
+        <div className="relative flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+          <div className="max-w-2xl space-y-4">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+              <Sparkles className="h-3.5 w-3.5" />
+              Multi-agent codebase intelligence
+            </div>
+            <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+              Codebase Analysis Agent
+            </h1>
+            <p className="text-base text-muted-foreground md:text-lg">
+              Map dependencies, detect technical debt, document services, and assess change impact
+              across polyglot repositories with a production-oriented orchestration stack.
             </p>
-          </Link>
-          
+          </div>
           <Link
-            href="/dependency-graph"
-            className="p-6 border rounded-lg hover:shadow-lg transition-shadow"
+            href="/analyze"
+            className={cn(
+              buttonVariants({ size: 'lg' }),
+              'gap-2 self-start shadow-glow md:self-end'
+            )}
           >
-            <h2 className="text-xl font-semibold mb-2">Dependency Graph</h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Interactive visualization of service dependencies
-            </p>
-          </Link>
-          
-          <Link
-            href="/services"
-            className="p-6 border rounded-lg hover:shadow-lg transition-shadow"
-          >
-            <h2 className="text-xl font-semibold mb-2">Service Inventory</h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Catalog of all services with documentation
-            </p>
-          </Link>
-          
-          <Link
-            href="/impact-analysis"
-            className="p-6 border rounded-lg hover:shadow-lg transition-shadow"
-          >
-            <h2 className="text-xl font-semibold mb-2">Impact Analysis</h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Change impact visualization and recommendations
-            </p>
-          </Link>
-          
-          <Link
-            href="/agent-status"
-            className="p-6 border rounded-lg hover:shadow-lg transition-shadow"
-          >
-            <h2 className="text-xl font-semibold mb-2">Agent Status</h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Real-time agent execution status
-            </p>
-          </Link>
-          
-          <Link
-            href="/tech-debt"
-            className="p-6 border rounded-lg hover:shadow-lg transition-shadow"
-          >
-            <h2 className="text-xl font-semibold mb-2">Tech Debt Analysis</h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Technical debt detection and remediation planning
-            </p>
+            Start with a Git URL
+            <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
+      </section>
+
+      <div>
+        <PageHeader
+          title="Operations"
+          description="Jump into the workspace area you need. Analysis always begins from the Analyze page or the API."
+          className="border-0 pb-4"
+        />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {modules.map((m) => {
+            const Icon = m.icon
+            return (
+              <Link key={m.href} href={m.href} className="group block">
+                <Card
+                  className={cn(
+                    'h-full border-border/80 transition-all duration-200',
+                    'hover:border-primary/35 hover:bg-card/80 hover:shadow-glow',
+                    m.highlight && 'ring-1 ring-primary/20'
+                  )}
+                >
+                  <CardHeader className="space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                    </div>
+                    <CardTitle className="text-base">{m.title}</CardTitle>
+                    <CardDescription className="text-sm leading-relaxed">
+                      {m.description}
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              </Link>
+            )
+          })}
+        </div>
       </div>
-    </main>
+    </div>
   )
 }

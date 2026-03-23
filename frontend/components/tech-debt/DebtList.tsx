@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import api from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 interface DebtListProps {
   repositoryId: string
@@ -34,20 +35,25 @@ export default function DebtList({ repositoryId }: DebtListProps) {
   const severities = ['critical', 'high', 'medium', 'low']
 
   if (isLoading) {
-    return <div className="text-center py-12">Loading...</div>
+    return (
+      <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
+    )
   }
+
+  const selectClass =
+    'w-full rounded-lg border border-input bg-background/60 px-3 py-2 text-sm text-foreground shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
   return (
     <div className="space-y-4">
       {/* Filters */}
-      <div className="p-4 border rounded-lg bg-gray-50">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="rounded-xl border border-border/80 bg-card/50 p-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <label className="block text-sm font-medium mb-2">Category</label>
+            <label className="mb-2 block text-sm font-medium text-foreground">Category</label>
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full p-2 border rounded"
+              className={selectClass}
             >
               <option value="">All Categories</option>
               {categories.map((cat) => (
@@ -59,11 +65,11 @@ export default function DebtList({ repositoryId }: DebtListProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Severity</label>
+            <label className="mb-2 block text-sm font-medium text-foreground">Severity</label>
             <select
               value={severityFilter}
               onChange={(e) => setSeverityFilter(e.target.value)}
-              className="w-full p-2 border rounded"
+              className={selectClass}
             >
               <option value="">All Severities</option>
               {severities.map((sev) => (
@@ -75,11 +81,11 @@ export default function DebtList({ repositoryId }: DebtListProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Priority</label>
+            <label className="mb-2 block text-sm font-medium text-foreground">Priority</label>
             <select
               value={priorityFilter || ''}
               onChange={(e) => setPriorityFilter(e.target.value ? parseInt(e.target.value) : null)}
-              className="w-full p-2 border rounded"
+              className={selectClass}
             >
               <option value="">All Priorities</option>
               <option value="1">Priority 1 (Quick Wins)</option>
@@ -95,58 +101,64 @@ export default function DebtList({ repositoryId }: DebtListProps) {
       <div className="space-y-3">
         {items.length > 0 ? (
           items.map((item: any) => (
-            <div key={item.id} className="p-4 border rounded-lg hover:shadow-md transition-shadow">
-              <div className="flex justify-between items-start mb-2">
+            <div
+              key={item.id}
+              className="rounded-xl border border-border/80 bg-card/40 p-4 transition-shadow hover:border-border hover:shadow-md"
+            >
+              <div className="mb-2 flex items-start justify-between">
                 <div className="flex-1">
-                  <h3 className="font-semibold text-lg">{item.title}</h3>
-                  <p className="text-sm text-gray-600 mt-1">{item.description}</p>
+                  <h3 className="text-lg font-semibold text-foreground">{item.title}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
                   {item.file_path && (
-                    <p className="text-xs text-gray-500 mt-2">
+                    <p className="mt-2 text-xs text-muted-foreground">
                       {item.file_path}
                       {item.line_start && ` (lines ${item.line_start}-${item.line_end || item.line_start})`}
                     </p>
                   )}
                 </div>
-                <div className="flex gap-2 ml-4">
+                <div className="ml-4 flex gap-2">
                   <span
-                    className={`px-2 py-1 rounded text-xs font-semibold ${
-                      item.severity === 'critical'
-                        ? 'bg-red-100 text-red-800'
-                        : item.severity === 'high'
-                        ? 'bg-orange-100 text-orange-800'
-                        : item.severity === 'medium'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}
+                    className={cn(
+                      'rounded px-2 py-1 text-xs font-semibold',
+                      item.severity === 'critical' && 'bg-red-500/15 text-red-400',
+                      item.severity === 'high' && 'bg-orange-500/15 text-orange-400',
+                      item.severity === 'medium' && 'bg-amber-500/15 text-amber-400',
+                      item.severity === 'low' && 'bg-emerald-500/15 text-emerald-400'
+                    )}
                   >
                     {item.severity}
                   </span>
                   {item.priority && (
-                    <span className="px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">
+                    <span className="rounded bg-primary/15 px-2 py-1 text-xs font-medium text-primary">
                       P{item.priority}
                     </span>
                   )}
                 </div>
               </div>
 
-              <div className="flex gap-4 mt-3 text-sm">
-                <span className="text-gray-600">
-                  Category: <span className="font-medium">{item.category}</span>
+              <div className="mt-3 flex flex-wrap gap-4 text-sm text-muted-foreground">
+                <span>
+                  Category: <span className="font-medium text-foreground">{item.category}</span>
                 </span>
-                <span className="text-gray-600">
-                  Impact: <span className="font-medium">{(item.impact_score * 100).toFixed(0)}%</span>
+                <span>
+                  Impact:{' '}
+                  <span className="font-medium text-foreground">
+                    {(item.impact_score * 100).toFixed(0)}%
+                  </span>
                 </span>
-                <span className="text-gray-600">
-                  Effort: <span className="font-medium">{item.effort_estimate || 'Unknown'}</span>
+                <span>
+                  Effort:{' '}
+                  <span className="font-medium text-foreground">{item.effort_estimate || 'Unknown'}</span>
                 </span>
-                <span className="text-gray-600">
-                  Status: <span className="font-medium">{item.status || 'open'}</span>
+                <span>
+                  Status:{' '}
+                  <span className="font-medium text-foreground">{item.status || 'open'}</span>
                 </span>
               </div>
             </div>
           ))
         ) : (
-          <div className="text-center py-12 text-gray-500">
+          <div className="py-12 text-center text-muted-foreground">
             No debt items found matching the filters.
           </div>
         )}
@@ -154,9 +166,9 @@ export default function DebtList({ repositoryId }: DebtListProps) {
 
       {/* Summary */}
       {items.length > 0 && (
-        <div className="p-4 border rounded-lg bg-gray-50">
-          <p className="text-sm text-gray-600">
-            Showing <span className="font-semibold">{items.length}</span> debt item(s)
+        <div className="rounded-xl border border-border/80 bg-muted/30 p-4">
+          <p className="text-sm text-muted-foreground">
+            Showing <span className="font-semibold text-foreground">{items.length}</span> debt item(s)
           </p>
         </div>
       )}
