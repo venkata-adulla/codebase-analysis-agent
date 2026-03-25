@@ -2,6 +2,7 @@ import logging
 from typing import Dict, Any
 from agents.base_agent import BaseAgent, AgentState
 from services.tech_debt_analyzer import TechDebtAnalyzer
+from services.graph_service import GraphService
 from openai import OpenAI
 from core.config import get_settings
 
@@ -18,6 +19,7 @@ class TechDebtAgent(BaseAgent):
             description="Performs technical debt analysis and generates remediation plans"
         )
         self.debt_analyzer = TechDebtAnalyzer()
+        self.graph_service = GraphService()
         self.client = None
         if settings.openai_api_key:
             self.client = OpenAI(api_key=settings.openai_api_key)
@@ -35,6 +37,11 @@ class TechDebtAgent(BaseAgent):
             return state
         
         logger.info(f"Tech debt agent analyzing repository: {repository_id}")
+        if dependency_graph is None and repository_id:
+            try:
+                dependency_graph = self.graph_service.get_dependency_graph(repository_id)
+            except Exception as exc:
+                logger.warning("Tech debt agent could not load dependency graph for %s: %s", repository_id, exc)
         
         # Run comprehensive debt analysis
         analysis_result = self.debt_analyzer.analyze_repository(

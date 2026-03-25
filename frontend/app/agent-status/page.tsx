@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, CheckCircle2, Clock } from 'lucide-react'
 import api from '@/lib/api'
@@ -12,12 +13,16 @@ import { Button } from '@/components/ui/button'
 export default function AgentStatusPage() {
   const queryClient = useQueryClient()
   const [feedback, setFeedback] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+  const repositoryId = searchParams.get('repo') || ''
 
   const { data: checkpoints, isLoading } = useQuery({
-    queryKey: ['human-review-checkpoints'],
+    queryKey: ['human-review-checkpoints', repositoryId],
     queryFn: async () => {
       try {
-        const response = await api.get('/human-review/checkpoints')
+        const response = await api.get('/human-review/checkpoints', {
+          params: repositoryId ? { repository_id: repositoryId } : undefined,
+        })
         return response.data.checkpoints || []
       } catch {
         return []
@@ -49,8 +54,8 @@ export default function AgentStatusPage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Agents & human review"
-        description="When analysis runs, the human_review_agent may open checkpoints. Your choice is stored on the running API (in-memory) for traceability; it does not automatically re-run the pipeline — use it as an operator decision log."
+        title="Human Review Checkpoints"
+        description="This page currently shows human-facing checkpoints opened by the `human_review_agent`. There is no separate agent-self-review UI yet; your decision is stored on the running API for traceability and operator follow-up."
       />
 
       {feedback && (
@@ -95,6 +100,39 @@ export default function AgentStatusPage() {
                     </div>
                     <p className="text-sm text-muted-foreground">{checkpoint.reason}</p>
                     <p className="mt-3 text-sm text-foreground">{checkpoint.question}</p>
+                    {checkpoint.context?.summary ? (
+                      <p className="mt-2 text-sm text-muted-foreground">{checkpoint.context.summary}</p>
+                    ) : null}
+                    {Array.isArray(checkpoint.context?.ambiguous_dependencies) &&
+                    checkpoint.context.ambiguous_dependencies.length > 0 ? (
+                      <div className="mt-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Ambiguous dependencies
+                        </p>
+                        <div className="space-y-3">
+                          {checkpoint.context.ambiguous_dependencies.map((dep: any, idx: number) => (
+                            <div key={`${checkpoint.id}-${idx}`} className="rounded-md border border-border/60 bg-background/40 p-3">
+                              <p className="text-sm font-medium text-foreground">
+                                {dep.source_service_name || dep.source_service_id} imports {dep.import_target || dep.normalized_target}
+                              </p>
+                              {dep.file ? (
+                                <p className="mt-1 text-xs text-muted-foreground break-all">
+                                  File: {dep.file}
+                                </p>
+                              ) : null}
+                              {dep.explanation ? (
+                                <p className="mt-1 text-sm text-muted-foreground">{dep.explanation}</p>
+                              ) : null}
+                              {Array.isArray(dep.possible_matches) && dep.possible_matches.length > 0 ? (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Possible matches: {dep.possible_matches.join(', ')}
+                                </p>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                     {checkpoint.options && checkpoint.options.length > 0 && (
                       <div className="mt-3 space-y-2">
                         <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -163,6 +201,9 @@ export default function AgentStatusPage() {
                       </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">{checkpoint.reason}</p>
+                    {checkpoint.question ? (
+                      <p className="mt-2 text-sm text-foreground">{checkpoint.question}</p>
+                    ) : null}
                     {checkpoint.response && (
                       <p className="mt-2 text-sm text-foreground">
                         <span className="font-medium text-muted-foreground">Response: </span>

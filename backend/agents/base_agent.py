@@ -54,7 +54,8 @@ class BaseAgent(ABC):
         state: AgentState,
         reason: str,
         question: str,
-        options: Optional[List[str]] = None
+        options: Optional[List[str]] = None,
+        context: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Check if human review is needed and add checkpoint."""
         # Simple heuristic: if state has ambiguous data, request review
@@ -63,6 +64,6 @@ class BaseAgent(ABC):
             "reason": reason,
             "question": question,
             "options": options,
-            "context": state.data.copy(),
+            "context": context if context is not None else state.data.copy(),
         })
         return True

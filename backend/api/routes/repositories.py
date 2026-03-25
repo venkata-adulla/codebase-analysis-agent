@@ -120,6 +120,7 @@ def _get_repository_name(repository_id: str) -> Optional[str]:
 def run_analysis_task(repository_id: str, repo_path: str):
     """Background task to run analysis."""
     _persist_repository_status(repository_id, "analyzing", 0.05, "Initializing analysis")
+    run_id: Optional[str] = None
     try:
         run_id = orchestrator.create_run(repository_id, {
             "repository_path": repo_path,
@@ -167,11 +168,24 @@ def run_analysis_task(repository_id: str, repo_path: str):
             active_analyses[repository_id].get("message"),
         )
     except Exception as e:
+        previous = active_analyses.get(repository_id, {})
         active_analyses[repository_id] = {
             "status": "failed",
+            "run_id": run_id or previous.get("run_id"),
+            "progress": previous.get("progress", 0.0),
+            "message": f"Analysis failed: {str(e)}",
             "error": str(e),
         }
-        _persist_repository_status(repository_id, "failed", 0.0, str(e))
+        if run_id:
+            run = orchestrator.get_run(run_id)
+            if run and str(run.get("status", "")).lower() == "completed":
+                active_analyses[repository_id]["progress"] = 1.0
+        _persist_repository_status(
+            repository_id,
+            "failed",
+            float(active_analyses[repository_id].get("progress", 0.0) or 0.0),
+            active_analyses[repository_id].get("message"),
+        )
 
 
 @router.post("/analyze")
@@ -279,10 +293,15 @@ async def get_analysis_status(
                         f"Running {_agent_label(str(current_agent))} "
                         f"({completed_count}/{WORKFLOW_AGENT_COUNT})"
                     )
-                elif str(run.get("status", "")).lower() == "completed":
+                elif str(run.get("status", "")).lower() == "completed" and analysis.get("status") not in ("failed", "error"):
                     analysis["status"] = "completed"
                     analysis["message"] = "Analysis completed"
                     analysis["progress"] = 1.0
+                elif analysis.get("status") in ("failed", "error"):
+                    analysis["progress"] = max(
+                        float(analysis.get("progress", 0.0) or 0.0),
+                        min(1.0, completed_count / WORKFLOW_AGENT_COUNT),
+                    )
                 elif analysis.get("status") == "queued":
                     analysis["message"] = "Queued"
         if analysis.get("status") not in ("running", "completed"):

@@ -1,12 +1,20 @@
 import hashlib
 import logging
+import os
 import re
-from typing import List, Dict, Any, Optional, Set
+import sys
+from collections import Counter
+from typing import List, Dict, Any, Optional, Set, Tuple
 from pathlib import Path
 from services.code_parser import CodeParserService
 from services.repository_manager import RepositoryManager
 
 logger = logging.getLogger(__name__)
+STDLIB_MODULES = set(getattr(sys, "stdlib_module_names", ())) | {
+    "argparse", "ast", "collections", "csv", "datetime", "functools", "hashlib",
+    "inspect", "itertools", "json", "logging", "math", "os", "pathlib", "re",
+    "subprocess", "sys", "typing", "unittest", "urllib",
+}
 
 
 class DependencyAnalyzer:
@@ -21,23 +29,43 @@ class DependencyAnalyzer:
         repository_path: str
     ) -> Dict[str, Any]:
         """Analyze dependencies in a repository."""
+        path = Path(repository_path)
         results = {
             "services": [],
+            "modules": [],
             "dependencies": [],
             "api_endpoints": [],
             "databases": [],
             "message_queues": [],
+            "entry_points": [],
+            "classification_summary": {},
         }
         
         # Identify services (directories with main files, package.json, etc.)
         services = self._identify_services(repository_path)
+        if self._should_use_python_modules(path, services):
+            python_modules = self._identify_python_module_services(path)
+            if python_modules:
+                services = python_modules
         results["services"] = services
+        results["entry_points"] = [
+            {**entry, "service_id": service["id"], "service_name": service["name"]}
+            for service in services
+            for entry in (service.get("entry_points") or [])
+        ]
+        results["modules"] = self._build_module_inventory(Path(repository_path), services)
+        results["classification_summary"] = dict(
+            Counter(
+                str(item.get("classification") or "unknown")
+                for item in [*services, *results["modules"]]
+            )
+        )
         
         # Analyze dependencies for each service
         for service in services:
             service_deps = self._analyze_service_dependencies(
-                service["path"],
-                service["id"]
+                service,
+                path,
             )
             results["dependencies"].extend(service_deps["dependencies"])
             results["api_endpoints"].extend(service_deps["api_endpoints"])
@@ -75,7 +103,6 @@ class DependencyAnalyzer:
         ignore_dirs = {".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build"}
         
         # Find directories with service indicators
-        import os
         for root, dirs, files in os.walk(path):
             dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
             root_path = Path(root)
@@ -85,12 +112,17 @@ class DependencyAnalyzer:
                 
                 # Determine language
                 language = self._detect_language(root_path)
+                entry_points = self._detect_entry_points(root_path, language, path)
+                classification = self._classify_module(root_path, path, language, files, entry_points)
                 
                 services.append({
                     "id": service_id,
                     "name": service_name,
                     "path": str(root_path),
                     "language": language,
+                    "classification": classification,
+                    "entry_points": entry_points,
+                    "entry_point_count": len(entry_points),
                 })
 
         # Heuristic fallback: if we only detected the repo root, split into meaningful code clusters.
@@ -113,6 +145,135 @@ class DependencyAnalyzer:
                 "language": "unknown",
             })
         
+        return services
+
+    def _should_use_python_modules(
+        self,
+        repository_root: Path,
+        services: List[Dict[str, Any]],
+    ) -> bool:
+        pyproject = repository_root / "pyproject.toml"
+        setup_py = repository_root / "setup.py"
+        src_dir = repository_root / "src"
+        python_files = list(repository_root.rglob("*.py"))
+        if len(python_files) < 5:
+            return False
+        has_python_package = any((child / "__init__.py").exists() for child in src_dir.iterdir()) if src_dir.exists() else False
+        if not has_python_package:
+            has_python_package = any(
+                child.is_dir() and (child / "__init__.py").exists()
+                for child in repository_root.iterdir()
+                if child.is_dir() and child.name not in {"tests", "test", "docs", "examples", "example"}
+            )
+        # Prefer module-level view for library repos or when current detection is still coarse.
+        return bool(has_python_package and (pyproject.exists() or setup_py.exists() or len(services) <= 12))
+
+    def _candidate_python_package_roots(self, repository_root: Path) -> List[Path]:
+        candidates: List[Path] = []
+        seen: Set[str] = set()
+
+        def add_if_package(path: Path):
+            resolved = str(path.resolve())
+            if resolved in seen:
+                return
+            if path.is_dir() and (path / "__init__.py").exists():
+                seen.add(resolved)
+                candidates.append(path)
+
+        src_dir = repository_root / "src"
+        if src_dir.exists() and src_dir.is_dir():
+            for child in src_dir.iterdir():
+                if child.name.startswith(".") or child.name in {"tests", "test", "docs", "examples", "example"}:
+                    continue
+                add_if_package(child)
+
+        for child in repository_root.iterdir():
+            if child.name.startswith(".") or child.name in {"src", "tests", "test", "docs", "examples", "example"}:
+                continue
+            add_if_package(child)
+
+        return candidates
+
+    def _module_name_for_file(self, file_path: Path, package_root: Path) -> str:
+        rel = file_path.relative_to(package_root)
+        parts = [package_root.name]
+        suffixless = rel.with_suffix("")
+        parts.extend(list(suffixless.parts))
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        return ".".join(parts)
+
+    def _classify_python_module_file(self, file_path: Path, repository_root: Path) -> str:
+        rel_parts = [part.lower() for part in file_path.relative_to(repository_root).parts]
+        name = file_path.name.lower()
+        if any(part in {"tests", "test"} for part in rel_parts) or name.startswith("test_"):
+            return "test"
+        if any(part in {"examples", "example"} for part in rel_parts):
+            return "example"
+        if any(part in {"docs", "doc"} for part in rel_parts):
+            return "documentation"
+        if name == "__main__.py" or name in {"cli.py", "main.py"}:
+            return "entrypoint"
+        if name == "__init__.py":
+            return "package_root"
+        if "src" in rel_parts:
+            return "core_library"
+        return "application_module"
+
+    def _detect_entry_points_for_file(self, file_path: Path, repository_root: Path) -> List[Dict[str, Any]]:
+        entry_points: List[Dict[str, Any]] = []
+        try:
+            text = file_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            return entry_points
+
+        rel = str(file_path.resolve().relative_to(repository_root.resolve()))
+        name = file_path.name.lower()
+        if name == "__main__.py":
+            entry_points.append({"type": "python_main", "file": rel})
+        if name in {"main.py", "cli.py"} and (
+            "__name__ == '__main__'" in text or '__name__ == "__main__"' in text
+        ):
+            entry_points.append({"type": "main_guard", "file": rel})
+        if any(part in {"bin", "scripts"} for part in file_path.parts):
+            entry_points.append({"type": "script_file", "file": rel})
+        return entry_points
+
+    def _identify_python_module_services(self, repository_root: Path) -> List[Dict[str, Any]]:
+        services: List[Dict[str, Any]] = []
+        package_roots = self._candidate_python_package_roots(repository_root)
+        ignore_dirs = {"__pycache__", ".git", ".venv", "venv", "node_modules", "dist", "build"}
+
+        for package_root in package_roots:
+            python_files = sorted(
+                [
+                    path for path in package_root.rglob("*.py")
+                    if path.is_file() and not any(part in ignore_dirs for part in path.parts)
+                ],
+                key=lambda path: (len(path.parts), str(path)),
+            )
+            if len(python_files) < 2:
+                continue
+
+            for file_path in python_files:
+                module_name = self._module_name_for_file(file_path, package_root)
+                if not module_name:
+                    continue
+                entry_points = self._detect_entry_points_for_file(file_path, repository_root)
+                classification = self._classify_python_module_file(file_path, repository_root)
+                services.append(
+                    {
+                        "id": self._build_service_id(module_name.replace(".", "_"), file_path),
+                        "name": module_name,
+                        "module_name": module_name,
+                        "path": str(file_path),
+                        "language": "python",
+                        "classification": classification,
+                        "entry_points": entry_points,
+                        "entry_point_count": len(entry_points),
+                    }
+                )
+
         return services
 
     def _build_service_id(self, service_name: str, service_path: Path) -> str:
@@ -158,19 +319,174 @@ class DependencyAnalyzer:
                 continue
 
             name = candidate.name
+            language = self._detect_language(candidate)
+            entry_points = self._detect_entry_points(candidate, language, repository_root)
             discovered.append(
                 {
                     "id": self._build_service_id(name, candidate),
                     "name": name,
                     "path": str(candidate),
-                    "language": self._detect_language(candidate),
+                    "language": language,
+                    "classification": self._classify_module(candidate, repository_root, language, None, entry_points),
+                    "entry_points": entry_points,
+                    "entry_point_count": len(entry_points),
                 }
             )
 
         return discovered
+
+    def _classify_module(
+        self,
+        module_path: Path,
+        repository_root: Path,
+        language: str,
+        files: Optional[List[str]] = None,
+        entry_points: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
+        rel = module_path.resolve().relative_to(repository_root.resolve())
+        parts = [p.lower() for p in rel.parts]
+        file_set = {f.lower() for f in (files or [])}
+        ep_count = len(entry_points or [])
+
+        if rel == Path("."):
+            return "repository_root"
+        if any(p in {"tests", "test"} for p in parts):
+            return "test"
+        if any(p in {"examples", "example"} for p in parts):
+            return "example"
+        if any(p in {"docs", "doc"} for p in parts):
+            return "documentation"
+        if ep_count > 0 or any(f in {"main.py", "__main__.py", "cli.py", "app.py", "server.py"} for f in file_set):
+            return "entrypoint"
+        if module_path.parent == repository_root / "src" or "src" in parts:
+            return "core_library"
+        if any(f in {"pyproject.toml", "setup.py", "setup.cfg", "package.json"} for f in file_set):
+            return "package_root"
+        if language in {"python", "javascript", "java"}:
+            return "application_module"
+        return "support_module"
+
+    def _detect_entry_points(
+        self,
+        module_path: Path,
+        language: str,
+        repository_root: Path,
+    ) -> List[Dict[str, Any]]:
+        entry_points: List[Dict[str, Any]] = []
+        candidate_files: List[Path] = []
+
+        for name in ("__main__.py", "main.py", "cli.py", "app.py", "server.py", "pyproject.toml", "setup.py", "package.json"):
+            fp = module_path / name
+            if fp.exists() and fp.is_file():
+                candidate_files.append(fp)
+
+        seen: Set[str] = set()
+        for file_path in candidate_files:
+            try:
+                text = file_path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+
+            rel = str(file_path.resolve().relative_to(repository_root.resolve()))
+
+            if file_path.name == "__main__.py":
+                key = f"python_main:{rel}"
+                if key not in seen:
+                    entry_points.append({"type": "python_main", "file": rel})
+                    seen.add(key)
+
+            if "__name__ == '__main__'" in text or '__name__ == "__main__"' in text:
+                key = f"main_guard:{rel}"
+                if key not in seen:
+                    entry_points.append({"type": "main_guard", "file": rel})
+                    seen.add(key)
+
+            if file_path.name == "pyproject.toml":
+                if re.search(r"(?m)^\[project\.scripts\]", text) or re.search(r"(?m)^\[project\.entry-points\.", text):
+                    key = f"python_console_scripts:{rel}"
+                    if key not in seen:
+                        entry_points.append({"type": "python_console_scripts", "file": rel})
+                        seen.add(key)
+
+            if file_path.name == "setup.py":
+                if "console_scripts" in text or "entry_points" in text:
+                    key = f"setup_console_scripts:{rel}"
+                    if key not in seen:
+                        entry_points.append({"type": "setup_console_scripts", "file": rel})
+                        seen.add(key)
+
+            if file_path.name == "package.json":
+                if re.search(r'"bin"\s*:', text):
+                    key = f"node_bin:{rel}"
+                    if key not in seen:
+                        entry_points.append({"type": "node_bin", "file": rel})
+                        seen.add(key)
+                if re.search(r'"start"\s*:', text):
+                    key = f"node_start_script:{rel}"
+                    if key not in seen:
+                        entry_points.append({"type": "node_start_script", "file": rel})
+                        seen.add(key)
+
+        return entry_points
+
+    def _build_module_inventory(self, repository_root: Path, services: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        modules: List[Dict[str, Any]] = []
+        seen_paths: Set[str] = set()
+        service_paths = {str(Path(s["path"]).resolve()) for s in services}
+
+        candidates: List[Path] = [repository_root]
+        for child in repository_root.iterdir():
+            if child.name.startswith("."):
+                continue
+            if child.is_dir():
+                candidates.append(child)
+
+        src_dir = repository_root / "src"
+        if src_dir.exists():
+            for child in src_dir.iterdir():
+                if child.is_dir() and not child.name.startswith("."):
+                    candidates.append(child)
+
+        for candidate in candidates:
+            resolved = str(candidate.resolve())
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
+
+            files = []
+            if candidate.is_dir():
+                try:
+                    files = [p.name for p in candidate.iterdir() if p.is_file()]
+                except Exception:
+                    files = []
+            language = self._detect_language(candidate) if candidate.is_dir() else "unknown"
+            entry_points = self._detect_entry_points(candidate, language, repository_root) if candidate.is_dir() else []
+            classification = self._classify_module(candidate, repository_root, language, files, entry_points)
+
+            modules.append(
+                {
+                    "name": candidate.name or repository_root.name,
+                    "path": str(candidate),
+                    "classification": classification,
+                    "language": language,
+                    "entry_point_count": len(entry_points),
+                    "is_service": resolved in service_paths,
+                }
+            )
+
+        return modules
     
     def _detect_language(self, path: Path) -> str:
         """Detect the primary language of a service."""
+        if path.is_file():
+            ext = path.suffix
+            if ext == ".py":
+                return "python"
+            if ext in {".js", ".jsx", ".ts", ".tsx"}:
+                return "javascript"
+            if ext == ".java":
+                return "java"
+            return "unknown"
         files = list(path.rglob("*"))
         
         extensions = {}
@@ -190,8 +506,8 @@ class DependencyAnalyzer:
     
     def _analyze_service_dependencies(
         self,
-        service_path: str,
-        service_id: str
+        service: Dict[str, Any],
+        repository_root: Path,
     ) -> Dict[str, Any]:
         """Analyze dependencies for a single service."""
         dependencies = []
@@ -199,12 +515,18 @@ class DependencyAnalyzer:
         databases = []
         message_queues = []
         
-        path = Path(service_path)
+        path = Path(str(service.get("path") or ""))
+        service_id = str(service.get("id") or "")
+        service_language = str(service.get("language") or "")
+        service_module = str(service.get("module_name") or "")
         
         # Get all code files
-        code_files = []
-        for ext in [".py", ".js", ".jsx", ".ts", ".tsx", ".java"]:
-            code_files.extend(path.rglob(f"*{ext}"))
+        if path.is_file():
+            code_files = [path]
+        else:
+            code_files = []
+            for ext in [".py", ".js", ".jsx", ".ts", ".tsx", ".java"]:
+                code_files.extend(path.rglob(f"*{ext}"))
         
         for file_path in code_files:
             if not file_path.is_file():
@@ -216,11 +538,18 @@ class DependencyAnalyzer:
             deps = self.parser_service.extract_dependencies(file_str)
             
             for dep in deps.get("third_party", []) + deps.get("local", []):
+                normalized_target = self._normalize_dependency_target(
+                    dep,
+                    service_language=service_language,
+                    service_module=service_module,
+                    service_path=str(path),
+                )
                 dependencies.append({
                     "source": service_id,
-                    "target": dep,
-                    "type": "import",
+                    "target": normalized_target,
+                    "type": "module_import" if service_module else "import",
                     "file": file_str,
+                    "original_target": dep,
                 })
             
             # Detect API calls
@@ -241,6 +570,33 @@ class DependencyAnalyzer:
             "databases": databases,
             "message_queues": message_queues,
         }
+
+    def _normalize_dependency_target(
+        self,
+        dep: str,
+        service_language: str,
+        service_module: str,
+        service_path: Optional[str] = None,
+    ) -> str:
+        raw = str(dep or "").strip()
+        if not raw:
+            return raw
+        if service_language != "python" or not service_module:
+            return raw
+        if not raw.startswith("."):
+            return raw
+
+        level = len(raw) - len(raw.lstrip("."))
+        remainder = raw[level:]
+        current_parts = service_module.split(".")
+        is_package_root = str(service_path or "").replace("\\", "/").endswith("/__init__.py")
+        package_parts = current_parts if is_package_root else current_parts[:-1]
+        if level > 1:
+            package_parts = package_parts[: max(0, len(package_parts) - (level - 1))]
+        normalized_parts = [*package_parts]
+        if remainder:
+            normalized_parts.extend([part for part in remainder.split(".") if part])
+        return ".".join(normalized_parts)
     
     def _detect_api_calls(self, file_path: str) -> List[Dict[str, Any]]:
         """Detect API calls in a file."""

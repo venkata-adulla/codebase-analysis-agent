@@ -37,6 +37,11 @@ const workflowStages = [
   'Human Review Agent',
 ]
 
+function isFailureStatus(status?: string | null) {
+  const normalized = (status || '').toLowerCase()
+  return normalized === 'failed' || normalized === 'error'
+}
+
 function StatusRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -298,7 +303,7 @@ export default function AnalyzePage() {
                 <div className="flex items-center justify-between gap-2">
                   <Badge
                     variant={
-                      status === 'failed' || status === 'error'
+                      isFailureStatus(status)
                         ? 'destructive'
                         : terminalStatuses.has(status || '')
                           ? 'success'
@@ -308,7 +313,7 @@ export default function AnalyzePage() {
                   >
                     {status || 'queued'}
                   </Badge>
-                  {terminalStatuses.has(status || '') && (
+                  {!isFailureStatus(status) && terminalStatuses.has(status || '') && (
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" aria-hidden />
                   )}
                 </div>
@@ -364,12 +369,17 @@ export default function AnalyzePage() {
                     {statusData?.message ? (
                       <p className="text-xs text-muted-foreground">{statusData.message}</p>
                     ) : null}
+                    {isFailureStatus(status) && statusData?.message ? (
+                      <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+                        {statusData.message}
+                      </div>
+                    ) : null}
                     <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-2">
                       {workflowStages.map((stage, idx) => {
                         const stageLower = stage.toLowerCase()
                         const isCurrent = !terminalStatuses.has(status || '') && runningStage?.toLowerCase() === stageLower
-                        const isDone = idx < completedCount || terminalStatuses.has(status || '')
-                        const isFailed = (status === 'failed' || status === 'error') && idx >= completedCount
+                        const isDone = idx < completedCount || (!isFailureStatus(status) && terminalStatuses.has(status || ''))
+                        const isFailed = isFailureStatus(status) && idx >= completedCount
                         return (
                           <div
                             key={stage}

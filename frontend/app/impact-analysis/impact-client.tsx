@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { repositoryDisplayName } from '@/lib/repository-display'
 
 const LS_KEY = 'caa:lastRepositoryId'
 
@@ -118,6 +119,11 @@ export function ImpactClient() {
             <CardTitle className="text-base">Results</CardTitle>
             <CardDescription>
               Impact summary for the requested change.
+              {analysis.repository_name ? (
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Repository: {repositoryDisplayName(analysis.repository_name, analysis.repository_id)}
+                </span>
+              ) : null}
               {analysis.repository_id_requested &&
                 analysis.repository_id_requested !== analysis.repository_id && (
                   <span className="mt-1 block text-xs text-muted-foreground">
@@ -140,6 +146,26 @@ export function ImpactClient() {
               >
                 Risk: {analysis.risk_level}
               </Badge>
+              {analysis.graph_summary?.service_count ? (
+                <Badge variant="secondary">
+                  {analysis.graph_summary.service_count} modules
+                </Badge>
+              ) : null}
+              {analysis.graph_summary?.direct_edge_count ? (
+                <Badge variant="secondary">
+                  {analysis.graph_summary.direct_edge_count} direct links
+                </Badge>
+              ) : null}
+              {analysis.graph_summary?.indirect_edge_count ? (
+                <Badge variant="secondary">
+                  {analysis.graph_summary.indirect_edge_count} indirect links
+                </Badge>
+              ) : null}
+              {analysis.graph_summary?.entry_point_service_count ? (
+                <Badge variant="secondary">
+                  {analysis.graph_summary.entry_point_service_count} entry-point modules
+                </Badge>
+              ) : null}
             </div>
 
             {analysis.risk_summary ? (
@@ -176,7 +202,16 @@ export function ImpactClient() {
                     >
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0 flex-1 space-y-1">
-                          <p className="font-medium text-foreground">{service.service_name}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-foreground">{service.service_name}</p>
+                            {service.impact_type ? <Badge variant="outline">{service.impact_type}</Badge> : null}
+                            {typeof service.depth === 'number' ? (
+                              <Badge variant="secondary">depth {service.depth}</Badge>
+                            ) : null}
+                            {service.classification ? (
+                              <Badge variant="secondary">{String(service.classification).replace(/_/g, ' ')}</Badge>
+                            ) : null}
+                          </div>
                           <p className="text-sm text-muted-foreground">{service.reason}</p>
                           {service.what_could_break?.length > 0 && (
                             <div className="mt-2">

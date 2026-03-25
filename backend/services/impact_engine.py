@@ -34,6 +34,9 @@ class ImpactEngine:
     ) -> Tuple[float, str, List[str]]:
         """Return (score, reason, what_could_break bullets) for a service without graph detail."""
         lang = (row.language or "unknown").lower()
+        metadata = row.meta_data or {}
+        classification = str(metadata.get("classification") or "unknown").replace("_", " ")
+        entry_point_count = int(metadata.get("entry_point_count") or 0)
         breaks: List[str] = []
         score = 0.25
         reason_parts: List[str] = []
@@ -89,6 +92,15 @@ class ImpactEngine:
             score = min(0.75, score + 0.2)
             reason_parts.append("Breaking-change wording suggests higher compatibility risk.")
 
+        if classification in {"entrypoint", "package root"} or entry_point_count > 0:
+            score = min(0.92, score + 0.12)
+            reason_parts.append("This module looks like an entry surface, so user-facing blast radius is higher.")
+            breaks.append("CLI/app startup behavior and packaging entry points may regress")
+
+        if classification in {"core library", "application module"}:
+            score = min(0.9, score + 0.08)
+            reason_parts.append("Core library code tends to fan out into more downstream callers.")
+
         if not reason_parts:
             reason_parts.append(
                 "Heuristic surface-area review: this service is part of the repository and may need regression testing."
@@ -102,6 +114,24 @@ class ImpactEngine:
 
         return score, " ".join(reason_parts), breaks[:6]
 
+    def _match_services_from_files(self, rows: List[Any], affected_files: List[str]) -> List[Any]:
+        normalized_files = [str(path or "").replace("\\", "/").lower() for path in affected_files if str(path or "").strip()]
+        matched: List[Any] = []
+        seen = set()
+
+        for row in rows:
+            service_path = str(getattr(row, "file_path", "") or "").replace("\\", "/").lower().rstrip("/")
+            if not service_path:
+                continue
+            for changed in normalized_files:
+                candidate = changed.lower().rstrip("/")
+                if candidate.startswith(service_path) or service_path.endswith(candidate):
+                    if row.id not in seen:
+                        matched.append(row)
+                        seen.add(row.id)
+                    break
+        return matched
+
     def analyze_impact(
         self,
         repository_id: str,
@@ -114,17 +144,50 @@ class ImpactEngine:
         desc_lower = (change_description or "").lower()
         global_breaks: List[str] = []
         risk_summary = ""
+        rows = self._load_services_for_repository(repository_id)
+        row_by_id = {row.id: row for row in rows}
+        graph_summary: Dict[str, Any] = {}
+
+        try:
+            graph_summary = self.graph_service.get_dependency_graph(repository_id)
+        except Exception:
+            logger.debug("Neo4j graph unavailable for impact summary", exc_info=True)
+
+        def append_impacted(item: Dict[str, Any]):
+            existing = next((entry for entry in impacted_services if entry["service_id"] == item["service_id"]), None)
+            if existing:
+                existing["impact_score"] = max(existing["impact_score"], item["impact_score"])
+                existing["what_could_break"] = list(
+                    dict.fromkeys([*(existing.get("what_could_break") or []), *(item.get("what_could_break") or [])])
+                )[:8]
+                if len(str(item.get("reason") or "")) > len(str(existing.get("reason") or "")):
+                    existing["reason"] = item["reason"]
+                if item.get("depth") is not None:
+                    existing["depth"] = min(existing.get("depth", item["depth"]), item["depth"])
+                return
+            impacted_services.append(item)
 
         if affected_services:
-            seen_ids = set()
             for service_id in affected_services:
+                row = row_by_id.get(service_id)
+                append_impacted(
+                    {
+                        "service_id": service_id,
+                        "service_name": getattr(row, "name", service_id),
+                        "impact_score": 0.92,
+                        "impact_type": "direct_selection",
+                        "reason": "Explicitly selected as directly changed.",
+                        "depth": 0,
+                        "what_could_break": [
+                            "This module is part of the proposed code change",
+                            "Behavior, contracts, or packaging may change at the source",
+                        ],
+                    }
+                )
                 dependents = self.graph_service.find_impacted_services(service_id)
                 for dependent in dependents:
                     sid = dependent["service_id"]
-                    if sid in seen_ids:
-                        continue
-                    seen_ids.add(sid)
-                    impacted_services.append(
+                    append_impacted(
                         {
                             "service_id": sid,
                             "service_name": dependent["name"],
@@ -145,9 +208,53 @@ class ImpactEngine:
                 )
 
         elif affected_files:
-            pass
+            if not rows:
+                risk_summary = "No services are stored for this repository yet, so changed files could not be mapped."
+            else:
+                directly_changed = self._match_services_from_files(rows, affected_files)
+                if directly_changed:
+                    for row in directly_changed:
+                        score, reason, breaks = self._heuristic_surface_impact(row, desc_lower)
+                        append_impacted(
+                            {
+                                "service_id": row.id,
+                                "service_name": row.name,
+                                "impact_score": round(min(score + 0.18, 1.0), 3),
+                                "impact_type": "direct_file_match",
+                                "reason": f"Changed file maps into this module. {reason}",
+                                "depth": 0,
+                                "classification": (row.meta_data or {}).get("classification"),
+                                "what_could_break": list(
+                                    dict.fromkeys(
+                                        ["Changed files live under this module path", *breaks]
+                                    )
+                                )[:8],
+                            }
+                        )
+                        for dependent in self.graph_service.find_impacted_services(row.id):
+                            append_impacted(
+                                {
+                                    "service_id": dependent["service_id"],
+                                    "service_name": dependent["name"],
+                                    "impact_score": self._calculate_impact_score(dependent["depth"], change_description),
+                                    "impact_type": "transitive",
+                                    "reason": f"Depends on changed module {row.name}.",
+                                    "depth": dependent["depth"],
+                                    "what_could_break": [
+                                        "Downstream callers may depend on changed behavior",
+                                        "Integration tests and internal contracts may fail",
+                                    ],
+                                }
+                            )
+                    risk_summary = (
+                        f"Matched {len(directly_changed)} directly changed module(s) from file paths and expanded to "
+                        f"{len(impacted_services)} impacted node(s) including transitive dependents."
+                    )
+                else:
+                    risk_summary = (
+                        "No stored service paths matched the changed files. Falling back to repository-wide heuristics."
+                    )
         else:
-            rows = self._load_services_for_repository(repository_id)
             if not rows:
                 risk_summary = (
                     "No services are stored for this repository yet. Run a full repository analysis so "
@@ -179,17 +286,22 @@ class ImpactEngine:
                         }
                     )
 
-            try:
-                g = self.graph_service.get_dependency_graph(repository_id)
-                edge_count = len(g.get("edges") or [])
-                node_count = len(g.get("nodes") or [])
-                if node_count and edge_count:
-                    risk_summary += (
-                        f" Graph overlay: {node_count} node(s), {edge_count} edge(s) — "
-                        "use the Dependency graph page for transitive relationships."
-                    )
-            except Exception:
-                logger.debug("Neo4j graph unavailable for impact summary", exc_info=True)
+        edge_count = len(graph_summary.get("edges") or [])
+        indirect_edge_count = len(graph_summary.get("indirect_edges") or [])
+        node_count = len(graph_summary.get("nodes") or [])
+        architecture = graph_summary.get("architecture_summary") or {}
+        if node_count:
+            risk_summary += (
+                f" Graph overlay: {node_count} node(s), {edge_count} direct edge(s), {indirect_edge_count} indirect edge(s)."
+            )
+            if architecture.get("entry_point_service_count"):
+                global_breaks.append(
+                    f"{architecture['entry_point_service_count']} entry-point module(s) detected; verify CLI/app startup behavior."
+                )
+            if architecture.get("cycle_count"):
+                global_breaks.append(
+                    f"Dependency graph contains {architecture['cycle_count']} cycle(s); regression paths may be harder to isolate."
+                )
 
         risk_level = self._calculate_risk_level(impacted_services)
         recommendations = self._generate_recommendations(impacted_services, risk_level, desc_lower)
@@ -202,6 +314,7 @@ class ImpactEngine:
             "total_impacted": len(impacted_services),
             "risk_summary": risk_summary,
             "global_what_could_break": global_breaks[:8],
+            "graph_summary": architecture,
         }
     
     def _calculate_impact_score(

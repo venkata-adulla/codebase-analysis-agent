@@ -10,6 +10,7 @@ import ReactFlow, {
   Background,
   Controls,
   MiniMap,
+  ReactFlowInstance,
   useNodesState,
   useEdgesState,
   MarkerType,
@@ -23,23 +24,37 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { repositoryDisplayName } from '@/lib/repository-display'
 import { isLikelyUuid } from '@/lib/service-display'
 
 const NODE_WIDTH = 180
-const NODE_HEIGHT = 72
+const NODE_HEIGHT = 76
 const ISOLATED_GRID_COLUMNS = 4
 const ISOLATED_ROW_GAP = 110
 const ISOLATED_COLUMN_GAP = 220
+const STABLE_NODE_TYPES = Object.freeze({})
+const STABLE_EDGE_TYPES = Object.freeze({})
 
-type RawGraphNode = { id: string; name?: string; language?: string; type?: string }
+type RawGraphNode = {
+  id: string
+  name?: string
+  language?: string
+  type?: string
+  classification?: string
+  entry_point_count?: number
+  metadata?: Record<string, unknown>
+}
 type EdgeTooltipState = {
   x: number
   y: number
   source: string
   target: string
   type: string
+  kind?: string
   original?: string
+  via?: string[]
+  depth?: number
 }
 
 function displayNodeName(
@@ -56,6 +71,20 @@ function displayNodeName(
 function normalizeLanguage(language?: string) {
   const value = (language || '').trim().toLowerCase()
   return value || 'unknown'
+}
+
+function displayClassification(value?: string) {
+  const raw = (value || '').trim()
+  if (!raw) return 'unknown'
+  return raw.replace(/_/g, ' ')
+}
+
+function isPeripheralClassification(value?: string) {
+  return ['example', 'test', 'documentation'].includes((value || '').trim().toLowerCase())
+}
+
+function isCoreClassification(value?: string) {
+  return ['core_library', 'package_root', 'entrypoint'].includes((value || '').trim().toLowerCase())
 }
 
 function nodeStyle(language?: string, isIsolated?: boolean) {
@@ -134,10 +163,11 @@ function layoutGraph(
 ) {
   const graph = new dagre.graphlib.Graph()
   graph.setDefaultEdgeLabel(() => ({}))
+  const useVerticalLayout = rawNodes.length > 10 || rawEdges.length > 18
   graph.setGraph({
-    rankdir: 'LR',
-    ranksep: 110,
-    nodesep: 40,
+    rankdir: useVerticalLayout ? 'TB' : 'LR',
+    ranksep: useVerticalLayout ? 70 : 110,
+    nodesep: useVerticalLayout ? 28 : 40,
     marginx: 24,
     marginy: 24,
   })
@@ -170,12 +200,17 @@ function layoutGraph(
         label: (
           <div className="space-y-1" title={`${displayName} (${normalizeLanguage(node.language)})`}>
             <div className="truncate font-medium">{displayName}</div>
-            <div className="text-[10px] uppercase tracking-wide text-white/65">{normalizeLanguage(node.language)}</div>
+            <div className="text-[10px] uppercase tracking-wide text-white/65">
+              {normalizeLanguage(node.language)} · {displayClassification(node.classification)}
+            </div>
+            {Number(node.entry_point_count || 0) > 0 ? (
+              <div className="text-[10px] text-emerald-300">{node.entry_point_count} entry point(s)</div>
+            ) : null}
           </div>
         ),
       },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      sourcePosition: useVerticalLayout ? Position.Bottom : Position.Right,
+      targetPosition: useVerticalLayout ? Position.Top : Position.Left,
       position: {
         x: (position?.x || 0) - NODE_WIDTH / 2,
         y: (position?.y || 0) - NODE_HEIGHT / 2,
@@ -199,13 +234,16 @@ function layoutGraph(
           <div className="space-y-1" title={`${displayName} (${normalizeLanguage(node.language)})`}>
             <div className="truncate font-medium">{displayName}</div>
             <div className="text-[10px] uppercase tracking-wide text-white/65">
-              {normalizeLanguage(node.language)} · isolated
+              {normalizeLanguage(node.language)} · {displayClassification(node.classification)} · isolated
             </div>
+            {Number(node.entry_point_count || 0) > 0 ? (
+              <div className="text-[10px] text-emerald-300">{node.entry_point_count} entry point(s)</div>
+            ) : null}
           </div>
         ),
       },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      sourcePosition: useVerticalLayout ? Position.Bottom : Position.Right,
+      targetPosition: useVerticalLayout ? Position.Top : Position.Left,
       position: {
         x: (index % ISOLATED_GRID_COLUMNS) * ISOLATED_COLUMN_GAP,
         y: isolatedStartY + Math.floor(index / ISOLATED_GRID_COLUMNS) * ISOLATED_ROW_GAP,
@@ -242,7 +280,13 @@ export default function DependencyGraphPage() {
 
   const repositoryId = repoFromQuery
   const graphContainerRef = useRef<HTMLDivElement | null>(null)
+  const reactFlowRef = useRef<ReactFlowInstance | null>(null)
   const [edgeTooltip, setEdgeTooltip] = useState<EdgeTooltipState | null>(null)
+  const [showIndirectEdges, setShowIndirectEdges] = useState(false)
+  const [showOnlyConnected, setShowOnlyConnected] = useState(false)
+  const [hidePeripheral, setHidePeripheral] = useState(true)
+  const [showCoreOnly, setShowCoreOnly] = useState(false)
+  const [showEdgeLabels, setShowEdgeLabels] = useState(false)
 
   const { data: graphData, isLoading, isError } = useQuery({
     queryKey: ['dependency-graph', repositoryId],
@@ -257,12 +301,68 @@ export default function DependencyGraphPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const fitViewOptions = useMemo(() => ({ padding: 0.2 }), [])
+  const filterStats = useMemo(() => {
+    const rawNodes: RawGraphNode[] = Array.isArray(graphData?.nodes) ? graphData.nodes : []
+    const rawEdges = Array.isArray(graphData?.edges) ? graphData.edges : []
+    const peripheralCount = rawNodes.filter((node) => isPeripheralClassification(node.classification)).length
+    const nonCoreCount = rawNodes.filter((node) => !isCoreClassification(node.classification)).length
+    const linkedIds = new Set<string>()
+    rawEdges.forEach((edge: { source?: string; target?: string }) => {
+      if (edge.source) linkedIds.add(edge.source)
+      if (edge.target) linkedIds.add(edge.target)
+    })
+    const isolatedCount = rawNodes.filter((node) => !linkedIds.has(node.id)).length
+    return { peripheralCount, nonCoreCount, isolatedCount }
+  }, [graphData])
+  const filteredGraph = useMemo(() => {
+    const rawNodes: RawGraphNode[] = Array.isArray(graphData?.nodes) ? graphData.nodes : []
+    const directEdges = Array.isArray(graphData?.edges) ? graphData.edges : []
+    const indirectEdges = Array.isArray(graphData?.indirect_edges) ? graphData.indirect_edges : []
+
+    let candidateNodes = rawNodes.filter((node) => {
+      if (showCoreOnly) return isCoreClassification(node.classification)
+      if (hidePeripheral && isPeripheralClassification(node.classification)) return false
+      return true
+    })
+
+    let candidateIds = new Set(candidateNodes.map((node) => node.id))
+    let candidateDirectEdges = directEdges.filter(
+      (edge: { source?: string; target?: string }) =>
+        !!edge.source && !!edge.target && candidateIds.has(edge.source) && candidateIds.has(edge.target)
+    )
+    let candidateIndirectEdges = indirectEdges.filter(
+      (edge: { source?: string; target?: string }) =>
+        !!edge.source && !!edge.target && candidateIds.has(edge.source) && candidateIds.has(edge.target)
+    )
+
+    if (showOnlyConnected) {
+      const linkedIds = new Set<string>()
+      ;[...candidateDirectEdges, ...candidateIndirectEdges].forEach((edge: { source: string; target: string }) => {
+        linkedIds.add(edge.source)
+        linkedIds.add(edge.target)
+      })
+      candidateNodes = candidateNodes.filter((node) => linkedIds.has(node.id))
+      candidateIds = new Set(candidateNodes.map((node) => node.id))
+      candidateDirectEdges = candidateDirectEdges.filter(
+        (edge: { source: string; target: string }) => candidateIds.has(edge.source) && candidateIds.has(edge.target)
+      )
+      candidateIndirectEdges = candidateIndirectEdges.filter(
+        (edge: { source: string; target: string }) => candidateIds.has(edge.source) && candidateIds.has(edge.target)
+      )
+    }
+
+    return {
+      nodes: candidateNodes,
+      edges: candidateDirectEdges,
+      indirectEdges: candidateIndirectEdges,
+    }
+  }, [graphData, hidePeripheral, showCoreOnly, showOnlyConnected])
   const dependencySummary = useMemo(() => {
     const repoLabel = graphData?.repository_name
       ? repositoryDisplayName(graphData.repository_name, graphData.repository_id || repositoryId)
       : repositoryId || 'this repository'
-    const rawNodes: RawGraphNode[] = Array.isArray(graphData?.nodes) ? graphData.nodes : []
-    const rawEdges = Array.isArray(graphData?.edges) ? graphData.edges : []
+    const rawNodes = filteredGraph.nodes
+    const rawEdges = filteredGraph.edges
     const validEdges = rawEdges.filter(
       (edge: { source?: string; target?: string }) =>
         !!edge.source && !!edge.target && edge.source !== edge.target
@@ -291,7 +391,7 @@ export default function DependencyGraphPage() {
     if (!rawNodes.length) {
       return {
         title: 'Repository Dependency Summary',
-        lines: [`No services are loaded yet for ${repoLabel}. Run or refresh an analysis to populate this view.`],
+        lines: [`No services are visible for ${repoLabel} with the current filters. Adjust the graph filters or rerun analysis.`],
       }
     }
 
@@ -315,7 +415,25 @@ export default function DependencyGraphPage() {
       title: 'Repository Dependency Summary',
       lines,
     }
-  }, [graphData, repositoryId])
+  }, [filteredGraph, graphData, repositoryId])
+
+  const architectureSummary = useMemo(() => {
+    const summary = (graphData?.architecture_summary || {}) as Record<string, any>
+    const counts = summary.classification_counts || {}
+    const topClassifications = Object.entries(counts)
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 4)
+
+    return {
+      serviceCount: Number(summary.service_count || 0),
+      directEdgeCount: Number(summary.direct_edge_count || 0),
+      indirectEdgeCount: Number(summary.indirect_edge_count || 0),
+      isolatedCount: Number(summary.isolated_count || 0),
+      entryPointServiceCount: Number(summary.entry_point_service_count || 0),
+      cycleCount: Number(summary.cycle_count || 0),
+      topClassifications,
+    }
+  }, [graphData])
 
   useEffect(() => {
     if (!graphData?.nodes) {
@@ -323,11 +441,12 @@ export default function DependencyGraphPage() {
       setEdges([])
       return
     }
-    const rawNodes: RawGraphNode[] = Array.isArray(graphData.nodes) ? graphData.nodes : []
+    const rawNodes: RawGraphNode[] = filteredGraph.nodes
     const nodeIds = new Set(rawNodes.map((node: { id: string }) => node.id))
 
-    const rawEdges = Array.isArray(graphData.edges) ? graphData.edges : []
-    const flowEdges: Edge[] = rawEdges
+    const rawEdges = filteredGraph.edges
+    const rawIndirectEdges = showIndirectEdges ? filteredGraph.indirectEdges : []
+    const flowEdges: Edge[] = [...rawEdges, ...rawIndirectEdges]
       .filter(
         (edge: { source?: string; target?: string }) =>
           !!edge.source &&
@@ -336,26 +455,34 @@ export default function DependencyGraphPage() {
           nodeIds.has(edge.source) &&
           nodeIds.has(edge.target)
       )
-      .map((edge: { source: string; target: string; type?: string; metadata?: unknown }, i: number) => {
+      .map((edge: { source: string; target: string; type?: string; metadata?: unknown; depth?: number; kind?: string }, i: number) => {
         const metadata = edgeMetadata(edge)
         const original = typeof metadata.original === 'string' ? metadata.original : undefined
+        const kind = typeof metadata.kind === 'string' ? metadata.kind : edge.kind || 'direct'
+        const via = Array.isArray(metadata.via) ? metadata.via.filter((item): item is string => typeof item === 'string') : []
+        const depth = typeof edge.depth === 'number' ? edge.depth : typeof metadata.depth === 'number' ? metadata.depth : undefined
+        const isIndirect = kind === 'indirect'
         return {
           id: `${edge.source}-${edge.target}-${i}`,
           source: edge.source,
           target: edge.target,
           type: 'smoothstep',
-          animated: true,
-          label: edge.type || '',
+          animated: !isIndirect,
+          label: showEdgeLabels && !isIndirect ? edge.type || '' : '',
           data: {
             source: edge.source,
             target: edge.target,
             type: edge.type || '',
             original,
+            kind,
+            via,
+            depth,
           },
           labelBgPadding: [6, 3] as [number, number],
           labelBgBorderRadius: 6,
           labelBgStyle: { fill: 'hsl(222 47% 11% / 0.92)', color: 'white' },
           labelStyle: { fill: 'hsl(210 40% 98%)', fontSize: 10, fontWeight: 500 },
+          style: isIndirect ? { strokeDasharray: '6 4', opacity: 0.45 } : undefined,
           markerEnd: { type: MarkerType.ArrowClosed },
         } satisfies Edge
       })
@@ -368,7 +495,12 @@ export default function DependencyGraphPage() {
 
     setNodes(flowNodes)
     setEdges(flowEdges)
-  }, [graphData, setNodes, setEdges])
+    if (reactFlowRef.current) {
+      requestAnimationFrame(() => {
+        reactFlowRef.current?.fitView(fitViewOptions)
+      })
+    }
+  }, [filteredGraph, fitViewOptions, graphData, repositoryId, setNodes, setEdges, showEdgeLabels, showIndirectEdges])
 
   const applyRepo = () => {
     const id = manualRepo.trim()
@@ -409,6 +541,135 @@ export default function DependencyGraphPage() {
             <span className="h-2.5 w-2.5 rounded-full border border-dashed border-white/40" />
             isolated service
           </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="h-0.5 w-6 bg-white/60" />
+            direct dependency
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="h-0.5 w-6 border-t border-dashed border-white/60" />
+            indirect dependency
+          </span>
+          <span className="inline-flex items-center gap-2 text-emerald-300">
+            entry point highlighted in node details
+          </span>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/80 bg-card/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">Graph Filters</CardTitle>
+          <CardDescription>
+            Narrow the view to core library structure or only linked modules when the repository contains many
+            examples, tests, or docs.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant={hidePeripheral ? 'default' : 'outline'}
+            size="sm"
+            disabled={filterStats.peripheralCount === 0}
+            onClick={() => setHidePeripheral((value) => !value)}
+          >
+            {hidePeripheral ? 'Showing core-focused view' : 'Show all classifications'} ({filterStats.peripheralCount} peripheral)
+          </Button>
+          <Button
+            type="button"
+            variant={showCoreOnly ? 'default' : 'outline'}
+            size="sm"
+            disabled={filterStats.nonCoreCount === 0}
+            onClick={() => setShowCoreOnly((value) => !value)}
+          >
+            {showCoreOnly ? 'Core modules only' : 'Include non-core modules'} ({filterStats.nonCoreCount} non-core)
+          </Button>
+          <Button
+            type="button"
+            variant={showOnlyConnected ? 'default' : 'outline'}
+            size="sm"
+            disabled={filterStats.isolatedCount === 0}
+            onClick={() => setShowOnlyConnected((value) => !value)}
+          >
+            {showOnlyConnected ? 'Connected nodes only' : 'Include isolated nodes'} ({filterStats.isolatedCount} isolated)
+          </Button>
+          <Button
+            type="button"
+            variant={showIndirectEdges ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowIndirectEdges((value) => !value)}
+          >
+            {showIndirectEdges ? 'Hide indirect edges' : 'Show indirect edges'}
+          </Button>
+          <Button
+            type="button"
+            variant={showEdgeLabels ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowEdgeLabels((value) => !value)}
+          >
+            {showEdgeLabels ? 'Hide edge labels' : 'Show edge labels'}
+          </Button>
+        </CardContent>
+        <CardContent className="pt-0 text-xs text-muted-foreground">
+          {filterStats.peripheralCount === 0 && filterStats.isolatedCount === 0
+            ? 'This repository currently resolves almost entirely to connected core modules, so some filters will not visibly change the graph.'
+            : 'Filter effects depend on the classifications and isolated nodes detected for the current repository.'}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card className="border-border/80 bg-card/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Services</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold">{architectureSummary.serviceCount}</CardContent>
+        </Card>
+        <Card className="border-border/80 bg-card/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Direct / Indirect</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            <span className="block text-2xl font-semibold text-foreground">
+              {architectureSummary.directEdgeCount} / {architectureSummary.indirectEdgeCount}
+            </span>
+            relationship links
+          </CardContent>
+        </Card>
+        <Card className="border-border/80 bg-card/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Entry Points</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold">{architectureSummary.entryPointServiceCount}</CardContent>
+        </Card>
+        <Card className="border-border/80 bg-card/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Cycles / Isolated</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            <span className="block text-2xl font-semibold text-foreground">
+              {architectureSummary.cycleCount} / {architectureSummary.isolatedCount}
+            </span>
+            architectural risk signals
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-border/80 bg-card/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">Module Classification</CardTitle>
+          <CardDescription>
+            Modules are heuristically grouped so library-style repositories can show core code, entry surfaces,
+            tests/examples/docs, and package roots more clearly.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          {architectureSummary.topClassifications.length > 0 ? (
+            architectureSummary.topClassifications.map(([label, count]) => (
+              <Badge key={label} variant="secondary" className="capitalize">
+                {displayClassification(label)}: {String(count)}
+              </Badge>
+            ))
+          ) : (
+            <span className="text-sm text-muted-foreground">No classification data loaded yet.</span>
+          )}
         </CardContent>
       </Card>
 
@@ -427,11 +688,18 @@ export default function DependencyGraphPage() {
 
       <Card className="border-border/80 bg-card/50">
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm">Repository scope</CardTitle>
-          <CardDescription>
-            Paste the same id you use on Service inventory. The URL must be <code className="rounded bg-muted px-1 text-xs">?repo=…</code> — not{' '}
-            <code className="rounded bg-muted px-1 text-xs">?=…</code>.
-          </CardDescription>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-sm">Repository scope</CardTitle>
+              <CardDescription>
+                Paste the same id you use on Service inventory. The URL must be <code className="rounded bg-muted px-1 text-xs">?repo=…</code> — not{' '}
+                <code className="rounded bg-muted px-1 text-xs">?=…</code>.
+              </CardDescription>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              Dense graphs default to direct edges only and hide labels until you enable them above.
+            </span>
+          </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="flex-1 space-y-2">
@@ -500,6 +768,12 @@ export default function DependencyGraphPage() {
               <ReactFlow
                 nodes={nodes}
                 edges={edges}
+                onInit={(instance) => {
+                  reactFlowRef.current = instance
+                  instance.fitView(fitViewOptions)
+                }}
+                nodeTypes={STABLE_NODE_TYPES}
+                edgeTypes={STABLE_EDGE_TYPES}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 fitView
@@ -510,7 +784,7 @@ export default function DependencyGraphPage() {
                 onEdgeMouseEnter={(event, edge) => {
                   if (!graphContainerRef.current) return
                   const rect = graphContainerRef.current.getBoundingClientRect()
-                  const payload = (edge.data || {}) as Record<string, string | undefined>
+                  const payload = (edge.data || {}) as Record<string, unknown>
                   setEdgeTooltip({
                     x: event.clientX - rect.left + 12,
                     y: event.clientY - rect.top + 12,
@@ -518,12 +792,15 @@ export default function DependencyGraphPage() {
                     target: payload.target || edge.target,
                     type: payload.type || String(edge.label || ''),
                     original: payload.original,
+                    kind: payload.kind,
+                    via: Array.isArray(payload.via) ? payload.via : undefined,
+                    depth: typeof payload.depth === 'number' ? payload.depth : undefined,
                   })
                 }}
                 onEdgeMouseMove={(event, edge) => {
                   if (!graphContainerRef.current) return
                   const rect = graphContainerRef.current.getBoundingClientRect()
-                  const payload = (edge.data || {}) as Record<string, string | undefined>
+                  const payload = (edge.data || {}) as Record<string, unknown>
                   setEdgeTooltip({
                     x: event.clientX - rect.left + 12,
                     y: event.clientY - rect.top + 12,
@@ -531,6 +808,9 @@ export default function DependencyGraphPage() {
                     target: payload.target || edge.target,
                     type: payload.type || String(edge.label || ''),
                     original: payload.original,
+                    kind: payload.kind,
+                    via: Array.isArray(payload.via) ? payload.via : undefined,
+                    depth: typeof payload.depth === 'number' ? payload.depth : undefined,
                   })
                 }}
                 onEdgeMouseLeave={() => setEdgeTooltip(null)}
@@ -554,6 +834,14 @@ export default function DependencyGraphPage() {
                     <span className="px-1">&rarr;</span>
                     <span className="text-foreground">{edgeTooltip.target}</span>
                   </div>
+                  {edgeTooltip.kind === 'indirect' && edgeTooltip.depth ? (
+                    <div className="mt-1 text-muted-foreground">Indirect path depth: {edgeTooltip.depth}</div>
+                  ) : null}
+                  {edgeTooltip.via && edgeTooltip.via.length > 0 ? (
+                    <div className="mt-1 text-muted-foreground">
+                      via <span className="text-foreground">{edgeTooltip.via.join(' -> ')}</span>
+                    </div>
+                  ) : null}
                   {edgeTooltip.original ? (
                     <div className="mt-1 break-all text-muted-foreground">
                       from <span className="text-foreground">{edgeTooltip.original}</span>

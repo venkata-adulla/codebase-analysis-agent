@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -27,17 +27,23 @@ def _get_orchestrator():
     return orchestrator
 
 
-def _collect_checkpoints(status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+def _collect_checkpoints(
+    status_filter: Optional[str] = None,
+    repository_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """Gather checkpoints from all active orchestrator runs."""
     orch = _get_orchestrator()
     results: List[Dict[str, Any]] = []
     for run_id, run in orch.active_runs.items():
+        if repository_id and run.get("repository_id") != repository_id:
+            continue
         for cp in run["state"].checkpoints:
             if status_filter and cp.get("status") != status_filter:
                 continue
             results.append({
                 "id": cp.get("id"),
                 "run_id": run_id,
+                "repository_id": run.get("repository_id"),
                 "agent": cp.get("agent", ""),
                 "reason": cp.get("reason", ""),
                 "question": cp.get("question", ""),
@@ -45,7 +51,7 @@ def _collect_checkpoints(status_filter: Optional[str] = None) -> List[Dict[str, 
                 "status": cp.get("status", "pending"),
                 "timestamp": cp.get("timestamp"),
                 "response": cp.get("response"),
-                "context": {},
+                "context": cp.get("context") or {},
             })
     return results
 
@@ -53,10 +59,11 @@ def _collect_checkpoints(status_filter: Optional[str] = None) -> List[Dict[str, 
 @router.get("/checkpoints")
 async def list_checkpoints(
     status: Optional[str] = None,
+    repository_id: Optional[str] = Query(None),
     api_key: bool = Depends(verify_api_key)
 ):
     """List human review checkpoints."""
-    return {"checkpoints": _collect_checkpoints(status)}
+    return {"checkpoints": _collect_checkpoints(status, repository_id)}
 
 
 @router.get("/checkpoints/{checkpoint_id}")

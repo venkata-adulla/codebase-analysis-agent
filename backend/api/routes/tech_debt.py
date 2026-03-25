@@ -6,7 +6,10 @@ from datetime import datetime
 from core.security import verify_api_key
 from services.tech_debt_analyzer import TechDebtAnalyzer
 from services.tech_debt_persistence import save_tech_debt_report
+from services.code_parser import CodeParserService
+from services.graph_service import GraphService
 from models.repository import Repository
+from models.service import Service as ServiceRow
 from models.tech_debt import TechDebtItem, TechDebtReport, DebtRemediationPlan, DebtMetricsHistory
 from core.database import SessionLocal
 from sqlalchemy.orm import Session
@@ -30,6 +33,31 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _load_services(db: Session, repository_id: str) -> List[Dict[str, Any]]:
+    rows = db.query(ServiceRow).filter(ServiceRow.repository_id == repository_id).all()
+    return [
+        {
+            "id": row.id,
+            "name": row.name,
+            "path": row.file_path,
+            "language": row.language,
+            "classification": (row.meta_data or {}).get("classification"),
+            "module_name": (row.meta_data or {}).get("module_name"),
+            "entry_point_count": (row.meta_data or {}).get("entry_point_count", 0),
+        }
+        for row in rows
+    ]
+
+
+def _load_code_elements(repository_path: str) -> List[Dict[str, Any]]:
+    parser = CodeParserService()
+    parsed = parser.parse_directory(
+        repository_path,
+        extensions=[".py", ".js", ".jsx", ".ts", ".tsx", ".java"],
+    )
+    return [element.to_dict() for elements in parsed.values() for element in elements]
 
 
 @router.post("/analyze")
@@ -61,12 +89,17 @@ async def analyze_tech_debt(
         # If we have a path, we can run the analyzer for richer results.
         try:
             analyzer = TechDebtAnalyzer()
+            services = _load_services(db, request.repository_id)
+            try:
+                dependency_graph = GraphService().get_dependency_graph(request.repository_id)
+            except Exception:
+                dependency_graph = None
             analysis_result = analyzer.analyze_repository(
                 repository_id=request.repository_id,
                 repository_path=repository.local_path,
-                code_elements=[],  # TODO: populate from repository model/code parser
-                services=[],
-                dependency_graph=None
+                code_elements=_load_code_elements(repository.local_path),
+                services=services,
+                dependency_graph=dependency_graph,
             )
         except Exception as e:
             # Keep fallback values and continue
@@ -133,6 +166,7 @@ async def get_debt_report(
             "documentation": report.documentation_score,
             "test_coverage": report.test_coverage_score,
         },
+        "assessment_coverage": (report.report_data or {}).get("assessment_coverage") or {},
         "items_by_category": report.items_by_category,
         "items_by_severity": report.items_by_severity,
         "debt_items": [
@@ -236,6 +270,7 @@ async def get_debt_metrics(
             "documentation": report.documentation_score,
             "test_coverage": report.test_coverage_score,
         },
+        "assessment_coverage": (report.report_data or {}).get("assessment_coverage") or {},
         "items_by_category": report.items_by_category,
         "items_by_severity": report.items_by_severity,
     }

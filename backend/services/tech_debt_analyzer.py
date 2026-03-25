@@ -5,6 +5,7 @@ from datetime import datetime
 from services.code_quality_analyzer import CodeQualityAnalyzer
 from services.architecture_analyzer import ArchitectureAnalyzer
 from services.dependency_vulnerability_scanner import DependencyVulnerabilityScanner
+from services.documentation_debt_analyzer import DocumentationDebtAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class TechDebtAnalyzer:
         self.code_quality_analyzer = CodeQualityAnalyzer()
         self.architecture_analyzer = ArchitectureAnalyzer()
         self.dependency_scanner = DependencyVulnerabilityScanner()
+        self.documentation_analyzer = DocumentationDebtAnalyzer()
     
     def analyze_repository(
         self,
@@ -31,6 +33,37 @@ class TechDebtAnalyzer:
         logger.info(f"Starting tech debt analysis for repository: {repository_id}")
         
         all_debt_items = []
+        assessment_coverage = {
+            "code_quality": {
+                "supported": True,
+                "confidence": "high" if code_elements else "low",
+                "note": "Parsed code elements are used to detect long functions, duplication, nesting, and similar code-quality issues."
+                if code_elements
+                else "Code-quality checks are limited because parsed code elements were not available for this run.",
+            },
+            "architecture": {
+                "supported": True,
+                "confidence": "high" if dependency_graph and services else "low",
+                "note": "Architecture findings use the dependency graph and discovered services."
+                if dependency_graph and services
+                else "Architecture checks are limited because service inventory or dependency graph context was missing.",
+            },
+            "dependency": {
+                "supported": True,
+                "confidence": "medium",
+                "note": "Dependency analysis currently focuses on static dependency manifests and known vulnerability or pinning issues.",
+            },
+            "documentation": {
+                "supported": True,
+                "confidence": "medium",
+                "note": "Documentation analysis is heuristic and currently checks repository docs presence plus missing Python docstrings.",
+            },
+            "test_coverage": {
+                "supported": False,
+                "confidence": "low",
+                "note": "Automated test-coverage analysis is not implemented yet; a zero score here does not imply good coverage.",
+            },
+        }
         
         # Run code quality analysis
         try:
@@ -62,6 +95,14 @@ class TechDebtAnalyzer:
             logger.info(f"Found {len(dependency_items)} dependency issues")
         except Exception as e:
             logger.error(f"Error in dependency scanning: {e}")
+
+        # Run documentation analysis
+        try:
+            documentation_items = self.documentation_analyzer.analyze(repository_path)
+            all_debt_items.extend(documentation_items)
+            logger.info(f"Found {len(documentation_items)} documentation issues")
+        except Exception as e:
+            logger.error(f"Error in documentation analysis: {e}")
         
         # Calculate scores and prioritize
         debt_scores = self._calculate_category_scores(all_debt_items)
@@ -84,6 +125,7 @@ class TechDebtAnalyzer:
             "category_scores": debt_scores,
             "items_by_category": self._group_by_category(all_debt_items),
             "items_by_severity": self._group_by_severity(all_debt_items),
+            "assessment_coverage": assessment_coverage,
             "analyzed_at": datetime.utcnow().isoformat(),
         }
     

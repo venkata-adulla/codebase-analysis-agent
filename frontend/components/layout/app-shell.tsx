@@ -22,7 +22,7 @@ const nav = [
   { href: '/services', label: 'Services', icon: BarChart3 },
   { href: '/impact-analysis', label: 'Impact', icon: Shield },
   { href: '/tech-debt', label: 'Tech debt', icon: Activity },
-  { href: '/agent-status', label: 'Agents', icon: Bot },
+  { href: '/agent-status', label: 'Human Review', icon: Bot },
 ]
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -38,9 +38,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex flex-col">
             <span className="text-sm font-semibold tracking-tight text-foreground">
               Codebase Analysis
-            </span>
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              Operations
             </span>
           </div>
         </div>
@@ -75,12 +72,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="border-t border-border p-4">
-          <p className="text-xs text-muted-foreground">
-            Connect the API at{' '}
-            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
-              NEXT_PUBLIC_API_URL
-            </code>
-          </p>
+          <div className="inline-flex items-center rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
+            Workspace ready
+          </div>
         </div>
       </aside>
 

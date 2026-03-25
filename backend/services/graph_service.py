@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import List, Dict, Any, Optional
+from collections import Counter, defaultdict, deque
+from typing import List, Dict, Any, Optional, Set, Tuple
 from core.database import get_neo4j_driver
 
 logger = logging.getLogger(__name__)
@@ -11,6 +12,20 @@ def _serialize_metadata(meta: Optional[Dict[str, Any]]) -> str:
     if not meta:
         return "{}"
     return json.dumps(meta, default=str)
+
+
+def _deserialize_metadata(meta: Any) -> Dict[str, Any]:
+    if not meta:
+        return {}
+    if isinstance(meta, dict):
+        return meta
+    if isinstance(meta, str):
+        try:
+            parsed = json.loads(meta)
+            return parsed if isinstance(parsed, dict) else {"raw": meta}
+        except Exception:
+            return {"raw": meta}
+    return {"raw": str(meta)}
 
 
 class GraphService:
@@ -200,7 +215,133 @@ class GraphService:
                    r.metadata as metadata
             """
             result = session.run(query, service_id=service_id)
-            return [record.data() for record in result]
+            rows = [record.data() for record in result]
+            for row in rows:
+                row["metadata"] = _deserialize_metadata(row.get("metadata"))
+            return rows
+
+    def _compute_indirect_edges(
+        self,
+        nodes: List[Dict[str, Any]],
+        direct_edges: List[Dict[str, Any]],
+        max_depth: int = 4,
+    ) -> List[Dict[str, Any]]:
+        adjacency: Dict[str, Set[str]] = defaultdict(set)
+        direct_pairs = {(edge["source"], edge["target"]) for edge in direct_edges if edge.get("source") and edge.get("target")}
+        node_ids = {node["id"] for node in nodes if node.get("id")}
+
+        for edge in direct_edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            if source and target and source != target:
+                adjacency[source].add(target)
+
+        indirect_edges: List[Dict[str, Any]] = []
+        seen_pairs: Set[Tuple[str, str]] = set()
+        for source in node_ids:
+            queue = deque([(source, [source])])
+            while queue:
+                current, path = queue.popleft()
+                if len(path) > max_depth:
+                    continue
+                for neighbor in adjacency.get(current, set()):
+                    if neighbor in path:
+                        continue
+                    next_path = [*path, neighbor]
+                    if len(next_path) >= 3 and (source, neighbor) not in direct_pairs and (source, neighbor) not in seen_pairs:
+                        indirect_edges.append(
+                            {
+                                "source": source,
+                                "target": neighbor,
+                                "type": "indirect",
+                                "depth": len(next_path) - 1,
+                                "metadata": {
+                                    "kind": "indirect",
+                                    "via": next_path[1:-1],
+                                    "path": next_path,
+                                },
+                            }
+                        )
+                        seen_pairs.add((source, neighbor))
+                    queue.append((neighbor, next_path))
+
+        return indirect_edges
+
+    def _compute_cycle_count(self, edges: List[Dict[str, Any]]) -> int:
+        adjacency: Dict[str, Set[str]] = defaultdict(set)
+        for edge in edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            if source and target and source != target:
+                adjacency[source].add(target)
+
+        cycles: Set[Tuple[str, ...]] = set()
+
+        def dfs(node: str, start: str, path: List[str]):
+            for neighbor in adjacency.get(node, set()):
+                if neighbor == start and len(path) > 1:
+                    cycle = tuple(sorted(path))
+                    cycles.add(cycle)
+                    continue
+                if neighbor in path or len(path) >= 6:
+                    continue
+                dfs(neighbor, start, [*path, neighbor])
+
+        for start in adjacency:
+            dfs(start, start, [start])
+
+        return len(cycles)
+
+    def _build_architecture_summary(
+        self,
+        nodes: List[Dict[str, Any]],
+        direct_edges: List[Dict[str, Any]],
+        indirect_edges: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        incoming = Counter()
+        outgoing = Counter()
+        classification_counts = Counter()
+        isolated: List[str] = []
+        entry_point_nodes = 0
+
+        linked_ids = set()
+        for edge in direct_edges:
+            if edge.get("source"):
+                outgoing[edge["source"]] += 1
+                linked_ids.add(edge["source"])
+            if edge.get("target"):
+                incoming[edge["target"]] += 1
+                linked_ids.add(edge["target"])
+
+        for node in nodes:
+            metadata = node.get("metadata") or {}
+            classification = str(node.get("classification") or metadata.get("classification") or "unknown")
+            classification_counts[classification] += 1
+            if int(metadata.get("entry_point_count") or 0) > 0:
+                entry_point_nodes += 1
+            if node.get("id") and node["id"] not in linked_ids:
+                isolated.append(node["id"])
+
+        most_outgoing = outgoing.most_common(3)
+        most_incoming = incoming.most_common(3)
+        return {
+            "service_count": len(nodes),
+            "direct_edge_count": len(direct_edges),
+            "indirect_edge_count": len(indirect_edges),
+            "isolated_count": len(isolated),
+            "isolated_node_ids": isolated[:8],
+            "entry_point_service_count": entry_point_nodes,
+            "classification_counts": dict(classification_counts),
+            "most_depends_on": [
+                {"service_id": service_id, "count": count}
+                for service_id, count in most_outgoing
+            ],
+            "most_depended_on": [
+                {"service_id": service_id, "count": count}
+                for service_id, count in most_incoming
+            ],
+            "cycle_count": self._compute_cycle_count(direct_edges),
+        }
     
     def get_dependency_graph(
         self,
@@ -228,26 +369,38 @@ class GraphService:
                 result = session.run(query)
             
             edges = [record.data() for record in result]
+            for edge in edges:
+                edge["metadata"] = _deserialize_metadata(edge.get("metadata"))
+                edge.setdefault("kind", "direct")
             
             # Get all service nodes
             if repository_id:
                 node_query = """
                 MATCH (s:Service {repository_id: $repository_id})
-                RETURN s.id as id, s.name as name, s.language as language
+                RETURN s.id as id, s.name as name, s.language as language, s.metadata as metadata
                 """
                 node_result = session.run(node_query, repository_id=repository_id)
             else:
                 node_query = """
                 MATCH (s:Service)
-                RETURN s.id as id, s.name as name, s.language as language
+                RETURN s.id as id, s.name as name, s.language as language, s.metadata as metadata
                 """
                 node_result = session.run(node_query)
             
             nodes = [record.data() for record in node_result]
+            for node in nodes:
+                node["metadata"] = _deserialize_metadata(node.get("metadata"))
+                node["classification"] = node["metadata"].get("classification")
+                node["entry_point_count"] = int(node["metadata"].get("entry_point_count") or 0)
+
+            indirect_edges = self._compute_indirect_edges(nodes, edges)
+            architecture_summary = self._build_architecture_summary(nodes, edges, indirect_edges)
             
             return {
                 "nodes": nodes,
                 "edges": edges,
+                "indirect_edges": indirect_edges,
+                "architecture_summary": architecture_summary,
             }
     
     def find_impacted_services(
@@ -265,7 +418,10 @@ class GraphService:
             ORDER BY depth
             """
             result = session.run(query, service_id=service_id, max_depth=max_depth)
-            return [record.data() for record in result]
+            impacted = [record.data() for record in result]
+            for item in impacted:
+                item["impact_kind"] = "transitive"
+            return impacted
     
     def clear_repository_graph(self, repository_id: str):
         """Clear all graph data for a repository."""

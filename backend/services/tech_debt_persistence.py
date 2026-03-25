@@ -66,6 +66,7 @@ def save_tech_debt_report(
             report_data={
                 "generated_at": datetime.utcnow().isoformat(),
                 "source": source,
+                "assessment_coverage": analysis_result.get("assessment_coverage") or {},
             },
         )
         db.add(report)

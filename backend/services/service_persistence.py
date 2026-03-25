@@ -40,6 +40,12 @@ def persist_services_and_docs(
             if not sid:
                 continue
             name = (s.get("name") or "unnamed").strip() or "unnamed"
+            metadata = {
+                "module_name": s.get("module_name"),
+                "classification": s.get("classification"),
+                "entry_points": s.get("entry_points") or [],
+                "entry_point_count": s.get("entry_point_count") or 0,
+            }
             row = db.query(ServiceRow).filter(ServiceRow.id == sid).first()
             desc = s.get("description")
             doc_blob = documentation.get(sid) if isinstance(documentation, dict) else None
@@ -53,6 +59,7 @@ def persist_services_and_docs(
                 row.repository_id = repository_id
                 row.language = s.get("language")
                 row.file_path = s.get("path")
+                row.meta_data = metadata
                 if desc is not None:
                     row.description = desc
             else:
@@ -64,7 +71,7 @@ def persist_services_and_docs(
                         language=s.get("language"),
                         description=desc,
                         file_path=s.get("path"),
-                        meta_data=None,
+                        meta_data=metadata,
                     )
                 )
 

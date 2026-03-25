@@ -48,8 +48,11 @@ async def list_services(
                 "repository_id": row.repository_id,
                 "repository_name": repository_name,
                 "language": row.language or "",
+                "classification": (row.meta_data or {}).get("classification"),
+                "entry_point_count": int((row.meta_data or {}).get("entry_point_count") or 0),
                 "description": row.description,
                 "path": row.file_path,
+                "meta_data": row.meta_data,
                 "created_at": row.created_at.isoformat() if row.created_at else None,
             }
             for row, repository_name in rows

@@ -79,6 +79,24 @@ export default function ServiceDetailPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
+            {data?.meta_data?.classification || Number(data?.meta_data?.entry_point_count || 0) > 0 ? (
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm text-muted-foreground">
+                {data?.meta_data?.classification ? (
+                  <p>
+                    Module classification:{' '}
+                    <span className="font-medium text-foreground">
+                      {String(data.meta_data.classification).replace(/_/g, ' ')}
+                    </span>
+                  </p>
+                ) : null}
+                {Number(data?.meta_data?.entry_point_count || 0) > 0 ? (
+                  <p className="mt-1">
+                    Entry points detected:{' '}
+                    <span className="font-medium text-foreground">{data.meta_data.entry_point_count}</span>
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             {data?.description && <MarkdownBody>{data.description}</MarkdownBody>}
             <details className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
               <summary className="cursor-pointer font-medium text-muted-foreground">Raw JSON</summary>

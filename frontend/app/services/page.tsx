@@ -114,6 +114,12 @@ export default function ServicesPage() {
                     <span>
                       Language: {service.language || 'Unknown'}
                     </span>
+                    {service.classification ? (
+                      <span className="capitalize">Module: {String(service.classification).replace(/_/g, ' ')}</span>
+                    ) : null}
+                    {Number(service.entry_point_count || 0) > 0 ? (
+                      <span>Entry points: {service.entry_point_count}</span>
+                    ) : null}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">

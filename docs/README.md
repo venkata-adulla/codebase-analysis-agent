@@ -4,6 +4,14 @@ This directory contains the professional documentation for the Codebase Analysis
 
 ## Documents
 
+### 0. PROJECT_REFERENCE.md
+This Markdown handbook is the most practical project reference for day-to-day use. It explains:
+- All frontend pages and UI modules
+- The purpose and meaning of each visible feature
+- Which backend routes, agents, services, and models power each feature
+- Where important calculations and heuristics live
+- Which parts are fully implemented, partial, or stubbed
+
 ### 1. High-Level Process Flow.docx
 This document describes the end-to-end process flows for all major operations in the system, including:
 - Repository acquisition and setup

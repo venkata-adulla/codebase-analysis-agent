@@ -1,10 +1,16 @@
 import ast
 import logging
+import sys
 from typing import List, Dict, Any
 from pathlib import Path
 from parsers.base_parser import BaseParser, CodeElement
 
 logger = logging.getLogger(__name__)
+STDLIB_MODULES = set(getattr(sys, "stdlib_module_names", ())) | {
+    "argparse", "ast", "collections", "csv", "datetime", "functools", "hashlib",
+    "inspect", "itertools", "json", "logging", "math", "os", "pathlib", "re",
+    "subprocess", "sys", "typing", "unittest", "urllib",
+}
 
 
 class PythonParser(BaseParser):
@@ -83,9 +89,16 @@ class PythonParser(BaseParser):
                     for alias in node.names:
                         imports.append(alias.name)
                 elif isinstance(node, ast.ImportFrom):
+                    prefix = "." * int(getattr(node, "level", 0) or 0)
                     if node.module:
+                        imports.append(f"{prefix}{node.module}")
                         for alias in node.names:
-                            imports.append(f"{node.module}.{alias.name}")
+                            if alias.name != "*":
+                                imports.append(f"{prefix}{node.module}.{alias.name}")
+                    else:
+                        for alias in node.names:
+                            if alias.name != "*":
+                                imports.append(f"{prefix}{alias.name}")
         
         except Exception as e:
             logger.error(f"Error extracting imports from {file_path}: {e}")
@@ -102,14 +115,17 @@ class PythonParser(BaseParser):
         local = []
         
         for imp in imports:
-            if "." in imp:
-                parts = imp.split(".")
-                if parts[0] in ["os", "sys", "json", "datetime", "collections", "itertools"]:
-                    standard_library.append(imp)
-                else:
-                    third_party.append(imp)
-            else:
+            if imp.startswith("."):
                 local.append(imp)
+                continue
+
+            root = imp.split(".", 1)[0]
+            if root in STDLIB_MODULES:
+                standard_library.append(imp)
+            elif "." in imp:
+                third_party.append(imp)
+            else:
+                third_party.append(imp)
         
         return {
             "imports": imports,

@@ -57,9 +57,11 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
   const categoryScores = metrics?.category_scores
     ? Object.entries(metrics.category_scores).map(([name, value]) => ({
         name: formatCategoryLabel(name),
+        rawName: name,
         score: value,
       }))
     : []
+  const assessmentCoverage = metrics?.assessment_coverage || report?.assessment_coverage || {}
 
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -165,12 +167,29 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
       {/* Category Scores */}
       <div className="rounded-xl border border-border/80 bg-card/50 p-6 md:col-span-2">
         <h3 className="mb-4 text-lg font-semibold text-foreground">Category scores</h3>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Scores can reflect either detected issues or the current level of analysis coverage. A `0.0` does not always
+          mean the repository is risk-free.
+        </p>
         {categoryScores.length > 0 ? (
           <div className="space-y-3">
             {categoryScores.map((item) => (
               <div key={item.name}>
                 <div className="mb-1 flex justify-between">
-                  <span className="text-sm text-foreground">{item.name}</span>
+                  <div>
+                    <span className="text-sm text-foreground">{item.name}</span>
+                    {assessmentCoverage[item.rawName] ? (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {assessmentCoverage[item.rawName].supported === false
+                          ? 'not fully supported'
+                          : assessmentCoverage[item.rawName].confidence === 'low'
+                            ? 'limited coverage'
+                            : assessmentCoverage[item.rawName].confidence === 'medium'
+                              ? 'basic coverage'
+                              : 'good coverage'}
+                      </span>
+                    ) : null}
+                  </div>
                   <span className="text-sm font-semibold text-foreground">{item.score.toFixed(1)}</span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-muted">
@@ -189,6 +208,11 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
                     }}
                   />
                 </div>
+                {assessmentCoverage[item.rawName]?.note ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {String(assessmentCoverage[item.rawName].note)}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>

@@ -37,22 +37,33 @@ class DependencyMapperAgent(BaseAgent):
         for service in services:
             service_id = service.get("id")
             service_name = str(service.get("name") or "").strip().lower()
+            module_name = str(service.get("module_name") or "").strip().lower()
             if not service_id or not service_name:
                 continue
             if source_id and service_id == source_id:
                 continue
-            if normalized_target == service_name:
-                candidates.append((1000 + len(service_name), service_id))
+            candidate_names = [value for value in {service_name, module_name} if value]
+            matched = False
+            for candidate_name in candidate_names:
+                if normalized_target == candidate_name:
+                    candidates.append((1000 + len(candidate_name), service_id))
+                    matched = True
+                    break
+                dotted_prefix = f"{candidate_name}."
+                if normalized_target.startswith(dotted_prefix) or f".{candidate_name}." in normalized_target:
+                    candidates.append((100 + len(candidate_name), service_id))
+                    matched = True
+                    break
+                if normalized_target.startswith(candidate_name):
+                    candidates.append((10 + len(candidate_name), service_id))
+                    matched = True
+                    break
+                if candidate_name in normalized_target:
+                    candidates.append((len(candidate_name), service_id))
+                    matched = True
+                    break
+            if matched:
                 continue
-            dotted_prefix = f"{service_name}."
-            if normalized_target.startswith(dotted_prefix) or f".{service_name}." in normalized_target:
-                candidates.append((100 + len(service_name), service_id))
-                continue
-            if normalized_target.startswith(service_name):
-                candidates.append((10 + len(service_name), service_id))
-                continue
-            if service_name in normalized_target:
-                candidates.append((len(service_name), service_id))
 
         if not candidates:
             return None
@@ -71,6 +82,9 @@ class DependencyMapperAgent(BaseAgent):
         
         # Analyze repository dependencies
         analysis_result = self.dependency_analyzer.analyze_repository(repository_path)
+
+        if repository_id:
+            self.graph_service.clear_repository_graph(repository_id)
         
         # Store services in graph
         for service in analysis_result["services"]:
@@ -79,7 +93,13 @@ class DependencyMapperAgent(BaseAgent):
                 name=service["name"],
                 repository_id=repository_id or "unknown",
                 language=service["language"],
-                metadata={"path": service["path"]}
+                metadata={
+                    "path": service["path"],
+                    "module_name": service.get("module_name"),
+                    "classification": service.get("classification"),
+                    "entry_points": service.get("entry_points") or [],
+                    "entry_point_count": service.get("entry_point_count") or 0,
+                }
             )
         
         # Create dependency relationships
@@ -98,7 +118,10 @@ class DependencyMapperAgent(BaseAgent):
                     source_service_id=source_id,
                     target_service_id=target_service,
                     dependency_type=dep.get("type", "unknown"),
-                    metadata={"original": target}
+                    metadata={
+                        "original": dep.get("original_target") or target,
+                        "normalized_target": target,
+                    }
                 )
         
         # Store API endpoints
@@ -128,12 +151,15 @@ class DependencyMapperAgent(BaseAgent):
         
         state.update("dependency_analysis", analysis_result)
         state.update("services", analysis_result["services"])
+        state.update("module_inventory", analysis_result.get("modules") or [])
+        state.update("entry_points", analysis_result.get("entry_points") or [])
         
         state.add_history({
             "agent": self.name,
             "action": "mapped_dependencies",
             "services_found": len(analysis_result["services"]),
             "dependencies_found": len(analysis_result["dependencies"]),
+            "entry_points_found": len(analysis_result.get("entry_points") or []),
         })
         
         logger.info(f"Dependency mapper agent completed: {len(analysis_result['services'])} services")

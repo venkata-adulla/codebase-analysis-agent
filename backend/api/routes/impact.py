@@ -5,6 +5,7 @@ from datetime import datetime
 
 from core.database import SessionLocal
 from core.security import verify_api_key
+from models.repository import Repository
 from services.repository_scope import resolve_repository_id
 
 router = APIRouter()
@@ -49,8 +50,12 @@ async def run_impact_analysis(
     impact_engine = ImpactEngine()
 
     db = SessionLocal()
+    repository_name: Optional[str] = None
     try:
         canonical_repo_id = resolve_repository_id(db, request.repository_id) or request.repository_id
+        repo = db.query(Repository).filter(Repository.id == canonical_repo_id).first()
+        if repo:
+            repository_name = repo.name
     finally:
         db.close()
 
@@ -66,6 +71,7 @@ async def run_impact_analysis(
     return {
         "analysis_id": analysis_id,
         "repository_id": canonical_repo_id,
+        "repository_name": repository_name,
         "repository_id_requested": request.repository_id,
         "change_description": request.change_description,
         "impacted_services": result["impacted_services"],
@@ -74,6 +80,7 @@ async def run_impact_analysis(
         "total_impacted": result["total_impacted"],
         "risk_summary": result.get("risk_summary") or "",
         "global_what_could_break": result.get("global_what_could_break") or [],
+        "graph_summary": result.get("graph_summary") or {},
         "created_at": datetime.utcnow(),
     }
 

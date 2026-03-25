@@ -81,6 +81,7 @@ export function TechDebtClient() {
       debt_density: report.debt_density,
       total_items: report.total_items,
       category_scores: report.category_scores,
+      assessment_coverage: report.assessment_coverage,
       items_by_category: report.items_by_category,
       items_by_severity: report.items_by_severity,
     }
