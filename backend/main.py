@@ -125,9 +125,20 @@ async def shutdown_event():
 
 if __name__ == "__main__":
     import uvicorn
+    from pathlib import Path
+
+    # Cloned repos live under ./repositories — watching them reloads the server on every
+    # file in a clone and drops in-flight HTTP connections (Next proxy: ECONNRESET).
+    _root = Path(__file__).resolve().parent
+    _reload_excludes = [
+        str(_root / "repositories"),
+        str(_root / "uploads"),
+    ]
+
     uvicorn.run(
         "main:app",
         host=settings.api_host,
         port=settings.api_port,
-        reload=True
+        reload=True,
+        reload_excludes=_reload_excludes,
     )

@@ -28,6 +28,8 @@ class AgentOrchestrator:
             "id": run_id,
             "repository_id": repository_id,
             "status": "running",
+            "current_agent": None,
+            "completed_agents": [],
             "state": AgentState(initial_data),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
@@ -83,28 +85,43 @@ class AgentOrchestrator:
             if agent_name not in self.agents:
                 logger.warning(f"Agent {agent_name} not found, skipping")
                 continue
-            
+
+            run = self.active_runs[run_id]
+            run["status"] = "running"
+            run["current_agent"] = agent_name
+            run["updated_at"] = datetime.utcnow()
+
             result = self.execute_agent(run_id, agent_name)
             results.append(result)
+            run["completed_agents"] = [r.get("agent") for r in results if r.get("agent")]
+            run["updated_at"] = datetime.utcnow()
             
             # Check for pending checkpoints
-            run = self.active_runs[run_id]
             pending_checkpoints = [
                 cp for cp in run["state"].checkpoints
                 if cp.get("status") == "pending"
             ]
             
             if pending_checkpoints:
-                logger.info(f"Pausing workflow for {len(pending_checkpoints)} checkpoints")
-                return {
-                    "run_id": run_id,
-                    "status": "paused",
-                    "checkpoints": pending_checkpoints,
-                    "completed_agents": results,
-                }
+                logger.info(
+                    "Workflow has %d pending checkpoint(s); pause=%s",
+                    len(pending_checkpoints),
+                    settings.orchestrator_pause_on_checkpoints,
+                )
+                if settings.orchestrator_pause_on_checkpoints:
+                    return {
+                        "run_id": run_id,
+                        "status": "paused",
+                        "checkpoints": pending_checkpoints,
+                        "completed_agents": results,
+                    }
+                # Continue: leave checkpoints for the UI / human-review API; finish the pipeline.
         
         run = self.active_runs[run_id]
         run["status"] = "completed"
+        run["current_agent"] = None
+        run["completed_agents"] = [r.get("agent") for r in results if r.get("agent")]
+        run["updated_at"] = datetime.utcnow()
         
         return {
             "run_id": run_id,

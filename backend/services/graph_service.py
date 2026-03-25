@@ -1,8 +1,16 @@
+import json
 import logging
 from typing import List, Dict, Any, Optional
 from core.database import get_neo4j_driver
 
 logger = logging.getLogger(__name__)
+
+
+def _serialize_metadata(meta: Optional[Dict[str, Any]]) -> str:
+    """Neo4j properties cannot be dicts; serialize to JSON string."""
+    if not meta:
+        return "{}"
+    return json.dumps(meta, default=str)
 
 
 class GraphService:
@@ -29,14 +37,15 @@ class GraphService:
                 s.metadata = $metadata
             RETURN s
             """
-            session.run(
+            result = session.run(
                 query,
                 service_id=service_id,
                 name=name,
                 repository_id=repository_id,
                 language=language,
-                metadata=metadata or {}
+                metadata=_serialize_metadata(metadata),
             )
+            result.consume()
             logger.info(f"Created service node: {service_id}")
     
     def create_file_node(
@@ -56,13 +65,14 @@ class GraphService:
             MERGE (f)-[:BELONGS_TO]->(s)
             RETURN f
             """
-            session.run(
+            result = session.run(
                 query,
                 file_id=file_id,
                 file_path=file_path,
                 service_id=service_id,
-                metadata=metadata or {}
+                metadata=_serialize_metadata(metadata),
             )
+            result.consume()
     
     def create_function_node(
         self,
@@ -81,13 +91,14 @@ class GraphService:
             MERGE (func)-[:DEFINED_IN]->(f)
             RETURN func
             """
-            session.run(
+            result = session.run(
                 query,
                 function_id=function_id,
                 function_name=function_name,
                 file_id=file_id,
-                metadata=metadata or {}
+                metadata=_serialize_metadata(metadata),
             )
+            result.consume()
     
     def create_dependency(
         self,
@@ -97,6 +108,12 @@ class GraphService:
         metadata: Optional[Dict[str, Any]] = None
     ):
         """Create a dependency relationship between services."""
+        if not source_service_id or not target_service_id:
+            logger.warning("Skipping dependency with empty endpoint: %s -> %s", source_service_id, target_service_id)
+            return
+        if source_service_id == target_service_id:
+            logger.info("Skipping self-loop dependency: %s -> %s", source_service_id, target_service_id)
+            return
         with self.driver.session() as session:
             query = """
             MATCH (source:Service {id: $source_service_id})
@@ -106,13 +123,14 @@ class GraphService:
                 r.created_at = datetime()
             RETURN r
             """
-            session.run(
+            result = session.run(
                 query,
                 source_service_id=source_service_id,
                 target_service_id=target_service_id,
                 dependency_type=dependency_type,
-                metadata=metadata or {}
+                metadata=_serialize_metadata(metadata),
             )
+            result.consume()
             logger.info(f"Created dependency: {source_service_id} -> {target_service_id}")
     
     def create_api_call(
@@ -132,13 +150,14 @@ class GraphService:
             MERGE (s)-[:CALLS_API]->(api)
             RETURN api
             """
-            session.run(
+            result = session.run(
                 query,
                 service_id=service_id,
                 api_endpoint=api_endpoint,
                 method=method,
-                metadata=metadata or {}
+                metadata=_serialize_metadata(metadata),
             )
+            result.consume()
     
     def create_database_connection(
         self,
@@ -157,13 +176,14 @@ class GraphService:
             MERGE (s)-[:USES_DB]->(db)
             RETURN db
             """
-            session.run(
+            result = session.run(
                 query,
                 service_id=service_id,
                 database_name=database_name,
                 connection_type=connection_type,
-                metadata=metadata or {}
+                metadata=_serialize_metadata(metadata),
             )
+            result.consume()
     
     def get_service_dependencies(
         self,
@@ -254,5 +274,6 @@ class GraphService:
             MATCH (s:Service {repository_id: $repository_id})
             DETACH DELETE s
             """
-            session.run(query, repository_id=repository_id)
+            result = session.run(query, repository_id=repository_id)
+            result.consume()
             logger.info(f"Cleared graph for repository: {repository_id}")

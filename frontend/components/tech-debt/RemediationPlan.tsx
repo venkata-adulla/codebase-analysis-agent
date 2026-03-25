@@ -12,7 +12,7 @@ export default function RemediationPlan({ repositoryId }: RemediationPlanProps) 
   const { data: plan, isLoading, refetch } = useQuery({
     queryKey: ['remediation-plan', repositoryId],
     queryFn: async () => {
-      const response = await api.post('/api/tech-debt/remediation-plan', {
+      const response = await api.post('/tech-debt/remediation-plan', {
         repository_id: repositoryId,
       })
       return response.data
@@ -22,7 +22,7 @@ export default function RemediationPlan({ repositoryId }: RemediationPlanProps) 
 
   const { mutate: generatePlan, isPending } = useMutation({
     mutationFn: async () => {
-      const response = await api.post('/api/tech-debt/remediation-plan', {
+      const response = await api.post('/tech-debt/remediation-plan', {
         repository_id: repositoryId,
       })
       return response.data

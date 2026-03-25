@@ -1,6 +1,23 @@
 'use client'
 
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts'
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+} from 'recharts'
+
+function formatCategoryLabel(raw: string) {
+  return raw
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (l) => l.toUpperCase())
+}
 
 interface DebtVisualizationProps {
   metrics: any
@@ -22,7 +39,7 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
   // Category distribution
   const categoryData = metrics?.items_by_category
     ? Object.entries(metrics.items_by_category).map(([name, value]) => ({
-        name: name.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        name: formatCategoryLabel(name),
         value,
       }))
     : []
@@ -39,7 +56,7 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
   // Category scores
   const categoryScores = metrics?.category_scores
     ? Object.entries(metrics.category_scores).map(([name, value]) => ({
-        name: name.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        name: formatCategoryLabel(name),
         score: value,
       }))
     : []
@@ -86,15 +103,15 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
       <div className="rounded-xl border border-border/80 bg-card/50 p-6">
         <h3 className="mb-4 text-lg font-semibold text-foreground">Debt by category</h3>
         {categoryData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
+          <ResponsiveContainer width="100%" height={240}>
+            <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
               <Pie
                 data={categoryData}
-                cx="50%"
+                cx="38%"
                 cy="50%"
                 labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
+                label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
+                outerRadius={72}
                 fill="#8884d8"
                 dataKey="value"
               >
@@ -108,6 +125,12 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
                   border: '1px solid hsl(217 33% 20%)',
                   borderRadius: 8,
                 }}
+              />
+              <Legend
+                layout="vertical"
+                align="right"
+                verticalAlign="middle"
+                wrapperStyle={{ paddingLeft: 12, fontSize: 12, color: 'hsl(210 40% 96%)' }}
               />
             </PieChart>
           </ResponsiveContainer>

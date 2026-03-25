@@ -17,8 +17,7 @@ class HumanReviewCheckpoint(BaseModel):
     status: str  # pending, resolved
 
 
-class HumanReviewResponse(BaseModel):
-    checkpoint_id: str
+class ResolveCheckpointBody(BaseModel):
     response: str
     metadata: Optional[Dict[str, Any]] = None
 
@@ -75,17 +74,25 @@ async def get_checkpoint(
 @router.post("/checkpoints/{checkpoint_id}/resolve")
 async def resolve_checkpoint(
     checkpoint_id: str,
-    response: HumanReviewResponse,
-    api_key: bool = Depends(verify_api_key)
+    body: ResolveCheckpointBody,
+    api_key: bool = Depends(verify_api_key),
 ):
-    """Resolve a human review checkpoint."""
+    """Resolve a human review checkpoint; JSON body must include ``response`` (chosen option text)."""
     orch = _get_orchestrator()
     for run_id, run in orch.active_runs.items():
         for cp in run["state"].checkpoints:
             if cp.get("id") == checkpoint_id:
-                cp["status"] = "resolved"
-                cp["response"] = response.response
-                cp["resolved_at"] = datetime.utcnow().isoformat()
-                cp["metadata"] = response.metadata or {}
+                try:
+                    orch.resolve_checkpoint(
+                        run_id,
+                        checkpoint_id,
+                        body.response,
+                        body.metadata,
+                    )
+                except ValueError:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Checkpoint not found",
+                    )
                 return {"checkpoint_id": checkpoint_id, "status": "resolved"}
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checkpoint not found")

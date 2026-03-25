@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from agents.base_agent import BaseAgent, AgentState
 from services.dependency_analyzer import DependencyAnalyzer
 from services.graph_service import GraphService
@@ -17,6 +17,47 @@ class DependencyMapperAgent(BaseAgent):
         )
         self.dependency_analyzer = DependencyAnalyzer()
         self.graph_service = GraphService()
+
+    def _resolve_target_service(
+        self,
+        target: str,
+        services: List[Dict[str, Any]],
+        source_id: Optional[str],
+    ) -> Optional[str]:
+        """Resolve an imported symbol/module to a target service id.
+
+        Prefer the most specific non-self service name match and never create
+        a self-loop dependency from a fuzzy substring hit.
+        """
+        normalized_target = str(target or "").strip().lower()
+        if not normalized_target:
+            return None
+
+        candidates: List[tuple[int, str]] = []
+        for service in services:
+            service_id = service.get("id")
+            service_name = str(service.get("name") or "").strip().lower()
+            if not service_id or not service_name:
+                continue
+            if source_id and service_id == source_id:
+                continue
+            if normalized_target == service_name:
+                candidates.append((1000 + len(service_name), service_id))
+                continue
+            dotted_prefix = f"{service_name}."
+            if normalized_target.startswith(dotted_prefix) or f".{service_name}." in normalized_target:
+                candidates.append((100 + len(service_name), service_id))
+                continue
+            if normalized_target.startswith(service_name):
+                candidates.append((10 + len(service_name), service_id))
+                continue
+            if service_name in normalized_target:
+                candidates.append((len(service_name), service_id))
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates[0][1]
     
     def execute(self, state: AgentState) -> AgentState:
         """Execute dependency mapping."""
@@ -42,20 +83,17 @@ class DependencyMapperAgent(BaseAgent):
             )
         
         # Create dependency relationships
-        service_map = {s["id"]: s for s in analysis_result["services"]}
-        
         for dep in analysis_result["dependencies"]:
             source_id = dep.get("source")
             target = dep.get("target")
-            
-            # Try to find target service
-            target_service = None
-            for service in analysis_result["services"]:
-                if target.startswith(service["name"]) or service["name"] in target:
-                    target_service = service["id"]
-                    break
-            
-            if source_id and target_service:
+
+            target_service = self._resolve_target_service(
+                target=str(target or ""),
+                services=analysis_result["services"],
+                source_id=source_id,
+            )
+
+            if source_id and target_service and source_id != target_service:
                 self.graph_service.create_dependency(
                     source_service_id=source_id,
                     target_service_id=target_service,

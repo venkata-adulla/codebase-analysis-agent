@@ -23,7 +23,7 @@ export default function DebtList({ repositoryId }: DebtListProps) {
       if (severityFilter) params.append('severity', severityFilter)
       if (priorityFilter) params.append('priority', priorityFilter.toString())
 
-      const response = await api.get(`/api/tech-debt/items?${params.toString()}`)
+      const response = await api.get(`/tech-debt/items?${params.toString()}`)
       return response.data
     },
     enabled: !!repositoryId,

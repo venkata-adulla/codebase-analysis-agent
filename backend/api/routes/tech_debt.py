@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from core.security import verify_api_key
 from services.tech_debt_analyzer import TechDebtAnalyzer
+from services.tech_debt_persistence import save_tech_debt_report
 from models.repository import Repository
 from models.tech_debt import TechDebtItem, TechDebtReport, DebtRemediationPlan, DebtMetricsHistory
 from core.database import SessionLocal
@@ -71,55 +72,28 @@ async def analyze_tech_debt(
             # Keep fallback values and continue
             print(f"Tech debt analysis engine failure: {e}")
 
-    report_id = str(uuid.uuid4())
-    report = TechDebtReport(
-        id=report_id,
-        repository_id=request.repository_id,
-        total_debt_score=analysis_result["total_debt_score"],
-        debt_density=analysis_result["debt_density"],
-        code_quality_score=analysis_result["category_scores"].get("code_quality", 0.0),
-        architecture_score=analysis_result["category_scores"].get("architecture", 0.0),
-        dependency_score=analysis_result["category_scores"].get("dependency", 0.0),
-        documentation_score=analysis_result["category_scores"].get("documentation", 0.0),
-        test_coverage_score=analysis_result["category_scores"].get("test", 0.0),
-        total_items=analysis_result["total_items"],
-        items_by_category=analysis_result["items_by_category"],
-        items_by_severity=analysis_result["items_by_severity"],
-        report_data={"generated_at": datetime.utcnow().isoformat()},
-    )
-
-    db.add(report)
-    for item in analysis_result.get("debt_items", []):
-        tech_item = TechDebtItem(
-            id=str(uuid.uuid4()),
-            repository_id=request.repository_id,
-            file_path=item.get("file_path"),
-            category=item.get("category", "code_quality"),
-            severity=item.get("severity", "low"),
-            priority=item.get("priority", 3),
-            title=item.get("title", "Unknown issue"),
-            description=item.get("description"),
-            line_start=item.get("line_start"),
-            line_end=item.get("line_end"),
-            impact_score=item.get("impact_score"),
-            effort_estimate=item.get("effort_estimate"),
-            status=item.get("status", "open"),
-        )
-        db.add(tech_item)
+    save_tech_debt_report(request.repository_id, analysis_result, source="api")
 
     if repository:
         repository.status = "completed"
         db.add(repository)
+        db.commit()
 
-    db.commit()
+    # Re-query latest totals for response (report id is internal to save_tech_debt_report)
+    latest = (
+        db.query(TechDebtReport)
+        .filter(TechDebtReport.repository_id == request.repository_id)
+        .order_by(TechDebtReport.created_at.desc())
+        .first()
+    )
 
     return {
-        "analysis_id": report_id,
+        "analysis_id": latest.id if latest else None,
         "repository_id": request.repository_id,
         "status": "completed",
         "message": "Tech debt analysis complete",
-        "total_items": report.total_items,
-        "total_debt_score": report.total_debt_score,
+        "total_items": latest.total_items if latest else analysis_result.get("total_items", 0),
+        "total_debt_score": latest.total_debt_score if latest else analysis_result.get("total_debt_score", 0),
     }
 
 

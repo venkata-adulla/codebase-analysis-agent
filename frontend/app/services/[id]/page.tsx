@@ -9,6 +9,9 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { MarkdownBody } from '@/components/markdown-body'
+import { repositoryDisplayName } from '@/lib/repository-display'
+import { serviceDisplayName } from '@/lib/service-display'
 
 export default function ServiceDetailPage() {
   const params = useParams()
@@ -38,7 +41,11 @@ export default function ServiceDetailPage() {
 
       <PageHeader
         title="Service detail"
-        description={`ID: ${id}`}
+        description={
+          data
+            ? `Viewing ${serviceDisplayName(data)} in ${repositoryDisplayName(data.repository_name, data.repository_id)}.`
+            : `Viewing service details.`
+        }
       />
 
       {isLoading ? (
@@ -63,16 +70,22 @@ export default function ServiceDetailPage() {
                 <Boxes className="h-6 w-6" />
               </div>
               <div>
-                <CardTitle>{data?.name || 'Service'}</CardTitle>
-                <CardDescription>{data?.language}</CardDescription>
+                <CardTitle>{data ? serviceDisplayName(data) : 'Service'}</CardTitle>
+                <CardDescription>
+                  Repository {repositoryDisplayName(data?.repository_name, data?.repository_id)} · Language:{' '}
+                  {data?.language || 'unknown'}
+                </CardDescription>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            {data?.description && <p>{data.description}</p>}
-            <pre className="mt-4 overflow-x-auto rounded-lg bg-muted/50 p-4 text-xs text-foreground">
-              {JSON.stringify(data, null, 2)}
-            </pre>
+          <CardContent className="space-y-4 text-sm">
+            {data?.description && <MarkdownBody>{data.description}</MarkdownBody>}
+            <details className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
+              <summary className="cursor-pointer font-medium text-muted-foreground">Raw JSON</summary>
+              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-all text-[11px] leading-relaxed text-foreground">
+                {JSON.stringify(data, null, 2)}
+              </pre>
+            </details>
           </CardContent>
         </Card>
       )}

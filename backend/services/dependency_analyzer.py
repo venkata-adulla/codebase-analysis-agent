@@ -1,6 +1,7 @@
+import hashlib
 import logging
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
 from services.code_parser import CodeParserService
 from services.repository_manager import RepositoryManager
@@ -59,19 +60,28 @@ class DependencyAnalyzer:
             "app.py",
             "server.py",
             "package.json",
+            "pyproject.toml",
+            "setup.py",
+            "setup.cfg",
+            "requirements.txt",
+            "Pipfile",
+            "go.mod",
+            "Cargo.toml",
             "pom.xml",
             "build.gradle",
             "Dockerfile",
             "docker-compose.yml",
         ]
+        ignore_dirs = {".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build"}
         
         # Find directories with service indicators
         import os
         for root, dirs, files in os.walk(path):
+            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
             root_path = Path(root)
             if any(indicator in files for indicator in service_indicators):
                 service_name = root_path.name
-                service_id = f"{service_name}_{hash(str(root_path))}"
+                service_id = self._build_service_id(service_name, root_path)
                 
                 # Determine language
                 language = self._detect_language(root_path)
@@ -82,17 +92,82 @@ class DependencyAnalyzer:
                     "path": str(root_path),
                     "language": language,
                 })
+
+        # Heuristic fallback: if we only detected the repo root, split into meaningful code clusters.
+        if len(services) <= 1:
+            existing_paths = {str(Path(s["path"]).resolve()) for s in services}
+            discovered = self._discover_code_clusters(path, existing_paths)
+            if discovered:
+                only_root_detected = len(services) == 1 and str(Path(services[0]["path"]).resolve()) == str(path.resolve())
+                if only_root_detected:
+                    services = discovered
+                else:
+                    services.extend(discovered)
         
         # If no services found, treat root as a single service
         if not services:
             services.append({
-                "id": "root_service",
+                "id": self._build_service_id("root_service", path),
                 "name": Path(repository_path).name,
                 "path": repository_path,
                 "language": "unknown",
             })
         
         return services
+
+    def _build_service_id(self, service_name: str, service_path: Path) -> str:
+        """Build a stable service id (Python's hash() is process-randomized)."""
+        stable_hash = hashlib.sha1(str(service_path.resolve()).encode("utf-8")).hexdigest()[:12]
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", service_name).strip("_") or "service"
+        return f"{safe_name}_{stable_hash}"
+
+    def _discover_code_clusters(self, repository_root: Path, existing_paths: Set[str]) -> List[Dict[str, Any]]:
+        """Discover likely service folders from top-level and src/* code-heavy directories."""
+        discovered: List[Dict[str, Any]] = []
+        ignore_names = {
+            ".git", ".github", ".vscode", "__pycache__", "node_modules", ".venv", "venv", "dist", "build",
+            "docs", "doc", "examples", "example", "scripts", "tests", "test",
+        }
+        code_exts = {".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs"}
+
+        candidate_dirs: List[Path] = []
+        for child in repository_root.iterdir():
+            if child.is_dir() and child.name not in ignore_names and not child.name.startswith("."):
+                candidate_dirs.append(child)
+
+        src_dir = repository_root / "src"
+        if src_dir.exists() and src_dir.is_dir():
+            for child in src_dir.iterdir():
+                if child.is_dir() and child.name not in ignore_names and not child.name.startswith("."):
+                    candidate_dirs.append(child)
+
+        seen: Set[str] = set()
+        for candidate in candidate_dirs:
+            resolved = str(candidate.resolve())
+            if resolved in seen or resolved in existing_paths:
+                continue
+            seen.add(resolved)
+
+            code_file_count = 0
+            for ext in code_exts:
+                code_file_count += sum(1 for _ in candidate.rglob(f"*{ext}"))
+                if code_file_count >= 3:
+                    break
+
+            if code_file_count < 3:
+                continue
+
+            name = candidate.name
+            discovered.append(
+                {
+                    "id": self._build_service_id(name, candidate),
+                    "name": name,
+                    "path": str(candidate),
+                    "language": self._detect_language(candidate),
+                }
+            )
+
+        return discovered
     
     def _detect_language(self, path: Path) -> str:
         """Detect the primary language of a service."""

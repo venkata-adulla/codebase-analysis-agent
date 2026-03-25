@@ -75,17 +75,17 @@ export function ImpactClient() {
         <CardHeader>
           <CardTitle className="text-base">Run assessment</CardTitle>
           <CardDescription>
-            Requires a repository ID from a completed or in-progress analysis run.
+            Requires the analysis ID from a completed or in-progress run.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="impact-repo">Repository ID</Label>
+            <Label htmlFor="impact-repo">Analysis ID</Label>
             <Input
               id="impact-repo"
               value={repositoryId}
               onChange={(e) => setRepositoryId(e.target.value)}
-              placeholder="Paste repository ID"
+              placeholder="Paste analysis ID"
             />
           </div>
 
@@ -116,10 +116,18 @@ export function ImpactClient() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Results</CardTitle>
-            <CardDescription>Impact summary for the requested change.</CardDescription>
+            <CardDescription>
+              Impact summary for the requested change.
+              {analysis.repository_id_requested &&
+                analysis.repository_id_requested !== analysis.repository_id && (
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Resolved repository id: {analysis.repository_id}
+                  </span>
+                )}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div>
+            <div className="flex flex-wrap items-center gap-3">
               <Badge
                 variant={
                   analysis.risk_level === 'critical' || analysis.risk_level === 'high'
@@ -134,28 +142,63 @@ export function ImpactClient() {
               </Badge>
             </div>
 
+            {analysis.risk_summary ? (
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-4 text-sm leading-relaxed text-muted-foreground">
+                {analysis.risk_summary}
+              </div>
+            ) : null}
+
+            {analysis.global_what_could_break?.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-foreground">What could break (overall)</h3>
+                <ul className="list-inside list-disc space-y-1.5 text-sm text-muted-foreground">
+                  {analysis.global_what_could_break.map((line: string, index: number) => (
+                    <li key={index}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div>
               <h3 className="mb-3 text-sm font-semibold text-foreground">
                 Impacted services ({analysis.total_impacted ?? 0})
               </h3>
-              <ul className="space-y-2">
-                {analysis.impacted_services?.map((service: any, index: number) => (
-                  <li
-                    key={index}
-                    className="rounded-lg border border-border/80 bg-background/40 p-4"
-                  >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="font-medium text-foreground">{service.service_name}</p>
-                        <p className="text-sm text-muted-foreground">{service.reason}</p>
+              {(!analysis.impacted_services || analysis.impacted_services.length === 0) ? (
+                <p className="text-sm text-muted-foreground">
+                  No services in scope. Persist services via a full repository analysis, then try again.
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {analysis.impacted_services.map((service: any, index: number) => (
+                    <li
+                      key={`${service.service_id}-${index}`}
+                      className="rounded-lg border border-border/80 bg-background/40 p-4"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <p className="font-medium text-foreground">{service.service_name}</p>
+                          <p className="text-sm text-muted-foreground">{service.reason}</p>
+                          {service.what_could_break?.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                Could break
+                              </p>
+                              <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs text-muted-foreground">
+                                {service.what_could_break.map((w: string, i: number) => (
+                                  <li key={i}>{w}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                        <span className="shrink-0 text-sm font-semibold tabular-nums text-primary">
+                          {(Number(service.impact_score) * 100).toFixed(0)}% impact
+                        </span>
                       </div>
-                      <span className="text-sm font-semibold tabular-nums text-primary">
-                        {(service.impact_score * 100).toFixed(0)}% impact
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             {analysis.recommendations && analysis.recommendations.length > 0 && (

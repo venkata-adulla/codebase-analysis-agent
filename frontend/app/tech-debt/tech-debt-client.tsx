@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation } from '@tanstack/react-query'
@@ -43,21 +43,48 @@ export function TechDebtClient() {
     queryKey: ['tech-debt-metrics', repositoryId],
     queryFn: async () => {
       if (!repositoryId) return null
-      const response = await api.get(`/tech-debt/metrics/${repositoryId}`)
-      return response.data
+      try {
+        const response = await api.get(`/tech-debt/metrics/${repositoryId}`)
+        return response.data
+      } catch (e: unknown) {
+        const status = (e as { response?: { status?: number } })?.response?.status
+        if (status === 404) return null
+        throw e
+      }
     },
     enabled: !!repositoryId,
+    retry: false,
   })
 
   const { data: report, isLoading: reportLoading } = useQuery({
     queryKey: ['tech-debt-report', repositoryId],
     queryFn: async () => {
       if (!repositoryId) return null
-      const response = await api.get(`/tech-debt/reports/${repositoryId}`)
-      return response.data
+      try {
+        const response = await api.get(`/tech-debt/reports/${repositoryId}`)
+        return response.data
+      } catch (e: unknown) {
+        const status = (e as { response?: { status?: number } })?.response?.status
+        if (status === 404) return null
+        throw e
+      }
     },
     enabled: !!repositoryId,
+    retry: false,
   })
+
+  const chartMetrics = useMemo(() => {
+    if (metrics) return metrics
+    if (!report) return null
+    return {
+      total_debt_score: report.total_debt_score,
+      debt_density: report.debt_density,
+      total_items: report.total_items,
+      category_scores: report.category_scores,
+      items_by_category: report.items_by_category,
+      items_by_severity: report.items_by_severity,
+    }
+  }, [metrics, report])
 
   const { mutate: runAnalysis, isPending: analysisPending } = useMutation({
     mutationFn: async (repoId: string) => {
@@ -103,14 +130,14 @@ export function TechDebtClient() {
         <CardHeader className="pb-4">
           <CardTitle className="text-base">Repository</CardTitle>
           <CardDescription>
-            Use the ID returned when you started analysis, or open this page from Analyze with a
+            Use the analysis ID returned when you started analysis, or open this page from Analyze with a
             pre-filled link.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div className="flex-1 space-y-2">
-              <Label htmlFor="repo-id">Repository ID</Label>
+              <Label htmlFor="repo-id">Analysis ID</Label>
               <Input
                 id="repo-id"
                 type="text"
@@ -126,6 +153,17 @@ export function TechDebtClient() {
             >
               {analysisPending ? 'Running…' : 'Run tech-debt pass'}
             </Button>
+            {repositoryId ? (
+              <Link
+                href={`/services?repo=${encodeURIComponent(repositoryId)}`}
+                className={cn(
+                  buttonVariants({ variant: 'outline', size: 'sm' }),
+                  'sm:min-w-[140px] justify-center'
+                )}
+              >
+                Service inventory
+              </Link>
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -154,7 +192,7 @@ export function TechDebtClient() {
         <>
           {selectedTab === 'overview' && (
             <div className="space-y-6">
-              <DebtVisualization metrics={metrics} report={report} />
+              <DebtVisualization metrics={chartMetrics} report={report} />
 
               <Card>
                 <CardHeader>

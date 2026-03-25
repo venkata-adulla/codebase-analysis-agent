@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # Agent Configuration
     agent_max_iterations: int = 100
     agent_timeout: int = 3600  # 1 hour
+    # When True, workflow stops at the first pending human-review checkpoint (may strand progress < 100%).
+    # Default False so analysis runs unattended; enable for interactive review flows.
+    orchestrator_pause_on_checkpoints: bool = False
     
     # Rate Limiting
     rate_limit_per_minute: int = 60

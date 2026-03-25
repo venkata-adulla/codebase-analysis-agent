@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
+import { repositoryDisplayName } from '@/lib/repository-display'
 import { cn } from '@/lib/utils'
 
 type RepoRow = { id: string; status?: string; progress?: number; name?: string }
@@ -119,9 +120,11 @@ export default function DashboardPage() {
                   className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0 space-y-1">
-                    <p className="font-mono text-sm text-foreground break-all">{repo.id}</p>
+                    <p className="text-sm font-medium text-foreground break-all">
+                      {repositoryDisplayName(repo.name, repo.id)}
+                    </p>
                     <p className="text-xs text-muted-foreground">
-                      {repo.name ? `Name: ${repo.name}` : 'Repository analysis'}
+                      <span className="font-mono break-all">{repo.id}</span>
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -133,15 +136,32 @@ export default function DashboardPage() {
                         {Math.round(repo.progress * 100)}%
                       </span>
                     )}
-                    <Link
-                      href={`/tech-debt?repo=${encodeURIComponent(repo.id)}`}
-                      className={cn(
-                        buttonVariants({ variant: 'outline', size: 'sm' }),
-                        'hidden sm:inline-flex'
-                      )}
-                    >
-                      Tech debt
-                    </Link>
+                    <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                      <Link
+                        href={`/tech-debt?repo=${encodeURIComponent(repo.id)}`}
+                        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+                      >
+                        Tech debt
+                      </Link>
+                      <Link
+                        href={`/impact-analysis?repo=${encodeURIComponent(repo.id)}`}
+                        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+                      >
+                        Impact
+                      </Link>
+                      <Link
+                        href={`/services?repo=${encodeURIComponent(repo.id)}`}
+                        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+                      >
+                        Services
+                      </Link>
+                      <Link
+                        href={`/dependency-graph?repo=${encodeURIComponent(repo.id)}`}
+                        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+                      >
+                        Graph
+                      </Link>
+                    </div>
                   </div>
                 </li>
               ))}

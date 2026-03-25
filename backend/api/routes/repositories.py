@@ -1,7 +1,8 @@
+import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 from core.security import verify_api_key
 from api.middleware.rate_limit import get_rate_limiter, limiter
@@ -19,6 +20,37 @@ router = APIRouter()
 
 from core.database import SessionLocal
 from models.repository import Repository
+from services.tech_debt_persistence import save_tech_debt_report
+from services.service_persistence import persist_services_and_docs
+
+logger = logging.getLogger(__name__)
+
+# Must match the length of the workflow list in ``run_analysis_task``.
+WORKFLOW_AGENT_COUNT = 7
+
+
+def _agent_label(agent_name: str) -> str:
+    return (agent_name or "").replace("_", " ").strip().title()
+
+
+def _workflow_progress_from_analysis(analysis: dict) -> float:
+    """Derive 0..1 progress from orchestrator result (avoids fake 50% stuck UI)."""
+    res = analysis.get("result") or {}
+    st = (analysis.get("status") or res.get("status") or "").lower()
+    if st in ("completed", "complete", "success", "done"):
+        return 1.0
+    if st == "failed":
+        return max(0.0, float(analysis.get("progress", 0.0)))
+    if st == "paused":
+        ca = res.get("completed_agents") or []
+        return min(1.0, len(ca) / WORKFLOW_AGENT_COUNT)
+    if st == "queued":
+        return 0.0
+    if "run_id" in analysis:
+        ca = res.get("completed_agents")
+        if ca is not None:
+            return min(1.0, len(ca) / WORKFLOW_AGENT_COUNT)
+    return float(analysis.get("progress", 0.0))
 
 # Initialize services
 repo_manager = RepositoryManager()
@@ -54,30 +86,92 @@ class RepositoryStatusResponse(BaseModel):
     updated_at: datetime
 
 
+def _persist_repository_status(
+    repository_id: str,
+    status: str,
+    progress: float,
+    message: Optional[str] = None,
+) -> None:
+    """Keep Postgres in sync so status survives API restarts."""
+    db = SessionLocal()
+    try:
+        row = db.query(Repository).filter(Repository.id == repository_id).first()
+        if row:
+            row.status = status
+            row.progress = progress
+            if message is not None:
+                row.message = message
+            db.commit()
+    except Exception as exc:
+        logger.warning("Failed to persist repository status for %s: %s", repository_id, exc)
+    finally:
+        db.close()
+
+
+def _get_repository_name(repository_id: str) -> Optional[str]:
+    db = SessionLocal()
+    try:
+        row = db.query(Repository).filter(Repository.id == repository_id).first()
+        return row.name if row else None
+    finally:
+        db.close()
+
+
 def run_analysis_task(repository_id: str, repo_path: str):
     """Background task to run analysis."""
+    _persist_repository_status(repository_id, "analyzing", 0.05, "Initializing analysis")
     try:
         run_id = orchestrator.create_run(repository_id, {
             "repository_path": repo_path,
             "repository_id": repository_id,
         })
+        active_analyses[repository_id] = {
+            "status": "running",
+            "run_id": run_id,
+            "progress": 0.05,
+            "message": "Preparing workflow",
+        }
         
         # Execute workflow
         workflow = ["planning_agent", "code_browser_agent", "dependency_mapper_agent", 
                     "tech_debt_agent", "documentation_agent", "impact_agent", "human_review_agent"]
         
         result = orchestrator.execute_workflow(run_id, workflow)
-        
+
         active_analyses[repository_id] = {
             "status": result["status"],
             "run_id": run_id,
             "result": result,
+            "message": "Analysis completed",
         }
+        active_analyses[repository_id]["progress"] = _workflow_progress_from_analysis(
+            active_analyses[repository_id]
+        )
+
+        run = orchestrator.get_run(run_id)
+        if run:
+            td = run["state"].get("tech_debt_analysis")
+            if td:
+                save_tech_debt_report(repository_id, td)
+            persist_services_and_docs(
+                repository_id,
+                run["state"].get("services") or [],
+                run["state"].get("documentation") or {},
+            )
+
+        final_status = str(result.get("status", "completed"))
+        _persist_repository_status(
+            repository_id,
+            final_status,
+            active_analyses[repository_id]["progress"],
+            active_analyses[repository_id].get("message"),
+        )
     except Exception as e:
         active_analyses[repository_id] = {
             "status": "failed",
             "error": str(e),
         }
+        _persist_repository_status(repository_id, "failed", 0.0, str(e))
 
 
 @router.post("/analyze")
@@ -162,41 +256,94 @@ async def get_analysis_status(
     repository_id: str,
     api_key: bool = Depends(verify_api_key)
 ):
-    """Get analysis status for a repository."""
-    if repository_id not in active_analyses:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Repository analysis not found"
-        )
-    
-    analysis = active_analyses[repository_id]
-    
-    # Get run status if available
-    if "run_id" in analysis:
-        run = orchestrator.get_run(analysis["run_id"])
-        if run:
-            analysis["progress"] = 0.5  # Simplified progress
-            analysis["checkpoints"] = run["state"].checkpoints
-    
-    return {
-        "repository_id": repository_id,
-        "status": analysis.get("status", "unknown"),
-        "progress": analysis.get("progress", 0.0),
-        "message": analysis.get("message"),
-    }
+    """Get analysis status for a repository.
+
+    Uses in-memory ``active_analyses`` while the process is running. After a server
+    restart, falls back to the persisted ``repositories`` row so the UI can still
+    poll without 404 spam.
+    """
+    if repository_id in active_analyses:
+        analysis = active_analyses[repository_id]
+
+        if "run_id" in analysis:
+            run = orchestrator.get_run(analysis["run_id"])
+            if run:
+                analysis["checkpoints"] = run["state"].checkpoints
+                completed: List[Any] = run.get("completed_agents") or []
+                completed_count = len(completed)
+                analysis["progress"] = min(1.0, completed_count / WORKFLOW_AGENT_COUNT)
+                current_agent = run.get("current_agent")
+                if current_agent:
+                    analysis["status"] = "running"
+                    analysis["message"] = (
+                        f"Running {_agent_label(str(current_agent))} "
+                        f"({completed_count}/{WORKFLOW_AGENT_COUNT})"
+                    )
+                elif str(run.get("status", "")).lower() == "completed":
+                    analysis["status"] = "completed"
+                    analysis["message"] = "Analysis completed"
+                    analysis["progress"] = 1.0
+                elif analysis.get("status") == "queued":
+                    analysis["message"] = "Queued"
+        if analysis.get("status") not in ("running", "completed"):
+            analysis["progress"] = _workflow_progress_from_analysis(analysis)
+
+        return {
+            "repository_id": repository_id,
+            "repository_name": _get_repository_name(repository_id),
+            "status": analysis.get("status", "unknown"),
+            "progress": analysis.get("progress", 0.0),
+            "message": analysis.get("message"),
+        }
+
+    db = SessionLocal()
+    try:
+        repo = db.query(Repository).filter(Repository.id == repository_id).first()
+        if repo:
+            return {
+                "repository_id": repository_id,
+                "repository_name": repo.name,
+                "status": repo.status or "unknown",
+                "progress": float(repo.progress) if repo.progress is not None else 0.0,
+                "message": repo.message,
+            }
+    finally:
+        db.close()
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Repository analysis not found",
+    )
 
 
 @router.get("/")
 async def list_repositories(
     api_key: bool = Depends(verify_api_key)
 ):
-    """List all analyzed repositories."""
+    """List analyzed repositories (in-memory session + persisted rows)."""
+    seen: set[str] = set()
     repositories = []
     for repo_id, analysis in active_analyses.items():
+        seen.add(repo_id)
         repositories.append({
             "id": repo_id,
+            "name": _get_repository_name(repo_id),
             "status": analysis.get("status", "unknown"),
             "progress": analysis.get("progress", 0.0),
         })
-    
+
+    db = SessionLocal()
+    try:
+        for row in db.query(Repository).order_by(Repository.created_at.desc()).limit(100).all():
+            if row.id in seen:
+                continue
+            repositories.append({
+                "id": row.id,
+                "status": row.status or "unknown",
+                "progress": float(row.progress) if row.progress is not None else 0.0,
+                "name": row.name,
+            })
+    finally:
+        db.close()
+
     return {"repositories": repositories}

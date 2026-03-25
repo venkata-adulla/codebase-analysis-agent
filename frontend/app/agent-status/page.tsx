@@ -1,13 +1,18 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, CheckCircle2, Clock } from 'lucide-react'
 import api from '@/lib/api'
 import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 
 export default function AgentStatusPage() {
+  const queryClient = useQueryClient()
+  const [feedback, setFeedback] = useState<string | null>(null)
+
   const { data: checkpoints, isLoading } = useQuery({
     queryKey: ['human-review-checkpoints'],
     queryFn: async () => {
@@ -21,6 +26,23 @@ export default function AgentStatusPage() {
     refetchInterval: 5000,
   })
 
+  const resolveMutation = useMutation({
+    mutationFn: async ({ checkpointId, response }: { checkpointId: string; response: string }) => {
+      await api.post(`/human-review/checkpoints/${encodeURIComponent(checkpointId)}/resolve`, {
+        response,
+      })
+    },
+    onSuccess: (_data, variables) => {
+      setFeedback(
+        `Recorded “${variables.response}” for checkpoint ${variables.checkpointId.slice(0, 8)}… — saved on this server session for audit.`
+      )
+      queryClient.invalidateQueries({ queryKey: ['human-review-checkpoints'] })
+    },
+    onError: () => {
+      setFeedback('Could not record the response. Check that the API is running and try again.')
+    },
+  })
+
   const pending = checkpoints?.filter((c: any) => c.status === 'pending') || []
   const resolved = checkpoints?.filter((c: any) => c.status === 'resolved') || []
 
@@ -28,8 +50,17 @@ export default function AgentStatusPage() {
     <div className="space-y-8">
       <PageHeader
         title="Agents & human review"
-        description="Checkpoints where the workflow pauses for clarification or approval."
+        description="When analysis runs, the human_review_agent may open checkpoints. Your choice is stored on the running API (in-memory) for traceability; it does not automatically re-run the pipeline — use it as an operator decision log."
       />
+
+      {feedback && (
+        <div
+          role="status"
+          className="rounded-lg border border-border/80 bg-muted/30 px-4 py-3 text-sm text-foreground"
+        >
+          {feedback}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="py-20 text-center text-sm text-muted-foreground">Loading…</div>
@@ -65,15 +96,38 @@ export default function AgentStatusPage() {
                     <p className="text-sm text-muted-foreground">{checkpoint.reason}</p>
                     <p className="mt-3 text-sm text-foreground">{checkpoint.question}</p>
                     {checkpoint.options && checkpoint.options.length > 0 && (
-                      <div className="mt-3">
+                      <div className="mt-3 space-y-2">
                         <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Options
+                          Choose a response
                         </p>
-                        <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
+                        <div className="flex flex-wrap gap-2">
                           {checkpoint.options.map((opt: string, idx: number) => (
-                            <li key={idx}>{opt}</li>
+                            <Button
+                              key={idx}
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={resolveMutation.isPending}
+                              className="text-xs"
+                              onClick={() => {
+                                if (
+                                  typeof window !== 'undefined' &&
+                                  !window.confirm(
+                                    `Record “${opt}” as your decision for this checkpoint?\n\nThis saves your answer for this server session (audit).`
+                                  )
+                                ) {
+                                  return
+                                }
+                                resolveMutation.mutate({
+                                  checkpointId: checkpoint.id,
+                                  response: opt,
+                                })
+                              }}
+                            >
+                              {opt}
+                            </Button>
                           ))}
-                        </ul>
+                        </div>
                       </div>
                     )}
                   </div>

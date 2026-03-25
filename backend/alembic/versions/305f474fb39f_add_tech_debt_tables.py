@@ -1,7 +1,7 @@
 """add tech debt tables
 
 Revision ID: 305f474fb39f
-Revises: 
+Revises: f8a2b1c0d3e4
 Create Date: 2026-03-23 21:18:37.294427
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '305f474fb39f'
-down_revision = None
+down_revision = 'f8a2b1c0d3e4'
 branch_labels = None
 depends_on = None
 
@@ -39,7 +39,6 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
-        if_not_exists=True,
     )
 
     op.create_table(
@@ -59,7 +58,6 @@ def upgrade() -> None:
         sa.Column("report_data", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
         sa.PrimaryKeyConstraint("id"),
-        if_not_exists=True,
     )
 
     op.create_table(
@@ -75,7 +73,6 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
-        if_not_exists=True,
     )
 
     op.create_table(
@@ -89,7 +86,6 @@ def upgrade() -> None:
         sa.Column("remediation_velocity", sa.Float(), nullable=True),
         sa.Column("recorded_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
         sa.PrimaryKeyConstraint("id"),
-        if_not_exists=True,
     )
     # ### end Alembic commands ###
 

@@ -20,12 +20,22 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { repositoryDisplayName } from '@/lib/repository-display'
 
 const LS_KEY = 'caa:lastRepositoryId'
 
 type SourceTab = 'url' | 'github' | 'local'
 
 const terminalStatuses = new Set(['failed', 'completed', 'complete', 'error', 'done', 'success'])
+const workflowStages = [
+  'Planning Agent',
+  'Code Browser Agent',
+  'Dependency Mapper Agent',
+  'Tech Debt Agent',
+  'Documentation Agent',
+  'Impact Agent',
+  'Human Review Agent',
+]
 
 function StatusRow({ label, value }: { label: string; value: string }) {
   return (
@@ -91,6 +101,7 @@ export default function AnalyzePage() {
       const res = await api.get(`/repositories/${activeRepoId}/status`)
       return res.data as {
         repository_id: string
+        repository_name?: string
         status: string
         progress?: number
         message?: string
@@ -99,9 +110,9 @@ export default function AnalyzePage() {
     enabled: !!activeRepoId,
     refetchInterval: (q) => {
       const s = q.state.data?.status?.toLowerCase()
-      if (!s) return 2000
+      if (!s) return 1000
       if (terminalStatuses.has(s)) return false
-      return 2000
+      return 1000
     },
   })
 
@@ -118,6 +129,12 @@ export default function AnalyzePage() {
   }
 
   const status = statusData?.status?.toLowerCase() ?? analyzeMutation.data?.status?.toLowerCase()
+  const progressPct = Math.round(
+    Math.max(0, Math.min(100, (typeof statusData?.progress === 'number' ? statusData.progress : 0) * 100))
+  )
+  const runningMatch = statusData?.message?.match(/Running\s+(.+)\s+\((\d+)\/(\d+)\)/i)
+  const runningStage = runningMatch?.[1]?.trim()
+  const completedCount = runningMatch ? parseInt(runningMatch[2], 10) : (terminalStatuses.has(status || '') ? workflowStages.length : 0)
 
   return (
     <div className="space-y-8">
@@ -295,11 +312,17 @@ export default function AnalyzePage() {
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" aria-hidden />
                   )}
                 </div>
-                <StatusRow label="Repository ID" value={activeRepoId} />
+                <StatusRow label="Analysis ID" value={activeRepoId} />
+                {statusData?.repository_name ? (
+                  <StatusRow
+                    label="Repository"
+                    value={repositoryDisplayName(statusData.repository_name, activeRepoId)}
+                  />
+                ) : null}
                 <div className="flex flex-wrap gap-2 pt-2">
                   <Button type="button" variant="secondary" size="sm" className="gap-1" onClick={copyId}>
                     <Copy className="h-3.5 w-3.5" />
-                    Copy ID
+                    Copy analysis ID
                   </Button>
                   <Link
                     href={`/tech-debt?repo=${encodeURIComponent(activeRepoId)}`}
@@ -313,18 +336,59 @@ export default function AnalyzePage() {
                   >
                     Impact
                   </Link>
+                  <Link
+                    href={`/services?repo=${encodeURIComponent(activeRepoId)}`}
+                    className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+                  >
+                    Services
+                  </Link>
+                  <Link
+                    href={`/dependency-graph?repo=${encodeURIComponent(activeRepoId)}`}
+                    className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+                  >
+                    Graph
+                  </Link>
                 </div>
                 {typeof statusData?.progress === 'number' && (
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Progress</span>
-                      <span>{Math.round(statusData.progress * 100)}%</span>
+                      <span>{progressPct}%</span>
                     </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full rounded-full bg-primary transition-all"
-                        style={{ width: `${Math.min(100, statusData.progress * 100)}%` }}
+                        style={{ width: `${progressPct}%` }}
                       />
+                    </div>
+                    {statusData?.message ? (
+                      <p className="text-xs text-muted-foreground">{statusData.message}</p>
+                    ) : null}
+                    <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-2">
+                      {workflowStages.map((stage, idx) => {
+                        const stageLower = stage.toLowerCase()
+                        const isCurrent = !terminalStatuses.has(status || '') && runningStage?.toLowerCase() === stageLower
+                        const isDone = idx < completedCount || terminalStatuses.has(status || '')
+                        const isFailed = (status === 'failed' || status === 'error') && idx >= completedCount
+                        return (
+                          <div
+                            key={stage}
+                            className={cn(
+                              'text-xs',
+                              isCurrent
+                                ? 'text-primary'
+                                : isFailed
+                                  ? 'text-red-400/70'
+                                  : isDone
+                                    ? 'text-emerald-400'
+                                    : 'text-muted-foreground/60'
+                            )}
+                          >
+                            {isCurrent ? '▶ ' : isFailed ? '✗ ' : isDone ? '✓ ' : '• '}
+                            {stage}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
