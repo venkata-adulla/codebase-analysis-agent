@@ -36,6 +36,17 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
   const debtScore = metrics?.total_debt_score || 0
   const scoreColor = debtScore > 75 ? COLORS.critical : debtScore > 50 ? COLORS.high : debtScore > 25 ? COLORS.medium : COLORS.low
 
+  const assessmentCoverage = metrics?.assessment_coverage || report?.assessment_coverage || {}
+  const coverageFallbackScore = (rawName: string): number => {
+    const cov = assessmentCoverage?.[rawName]
+    if (!cov || cov.supported === false) return 0
+    const confidence = String(cov.confidence || '').toLowerCase()
+    if (confidence === 'high') return 6
+    if (confidence === 'medium') return 4
+    if (confidence === 'low') return 2
+    return 0
+  }
+
   // Category distribution
   const categoryData = metrics?.items_by_category
     ? Object.entries(metrics.items_by_category).map(([name, value]) => ({
@@ -58,10 +69,10 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
     ? Object.entries(metrics.category_scores).map(([name, value]) => ({
         name: formatCategoryLabel(name),
         rawName: name,
-        score: value,
+        rawScore: Number(value),
+        score: Number(value) > 0 ? Number(value) : coverageFallbackScore(name),
       }))
     : []
-  const assessmentCoverage = metrics?.assessment_coverage || report?.assessment_coverage || {}
   const scoreExplanation = metrics?.score_explanation || report?.score_explanation || {}
   const overallWeights = scoreExplanation?.overall_weights || {}
   const severityWeights = scoreExplanation?.severity_weights || {}
@@ -265,6 +276,11 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
                 {assessmentCoverage[item.rawName]?.note ? (
                   <p className="mt-1 text-xs text-muted-foreground">
                     {String(assessmentCoverage[item.rawName].note)}
+                  </p>
+                ) : null}
+                {item.rawScore === 0 && item.score > 0 ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Showing provisional score from analysis coverage; rerun analysis for issue-based scoring.
                   </p>
                 ) : null}
                 {item.score === 0 && assessmentCoverage[item.rawName]?.supported !== false ? (

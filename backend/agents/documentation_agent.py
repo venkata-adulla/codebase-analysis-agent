@@ -224,6 +224,37 @@ def _build_structural_summary(
     classes_count = len(classes)
     funcs_count = len(functions)
 
+    opening = f"**{name}** is a {language} module"
+    if classification:
+        opening += f" in the **{classification}** layer"
+    opening += "."
+
+    if classes_count or funcs_count:
+        behavior = (
+            f"In plain terms, this part of the codebase currently exposes about **{classes_count} class(es)** "
+            f"and **{funcs_count} public method/function entry points**."
+        )
+    else:
+        behavior = "In plain terms, no clear public API surface was detected from the extracted symbols."
+
+    coupling_parts: List[str] = []
+    if outbound:
+        coupling_parts.append(f"it calls or depends on **{len(outbound)}** other mapped module link(s)")
+    if inbound:
+        coupling_parts.append(f"it is used by **{len(inbound)}** inbound link(s)")
+    coupling = (
+        f"From the dependency graph perspective, {', and '.join(coupling_parts)}."
+        if coupling_parts
+        else "From the current dependency graph snapshot, strong coupling signals were not detected yet."
+    )
+
+    details = (
+        f"It draws information from **{files_count} source file(s)**"
+        + (f", primarily located at `{path}`." if path else ".")
+    )
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
     opening = (
         f"**{name}** is a **{language}** module"
         + (f" classified as **{classification}**" if classification else "")
