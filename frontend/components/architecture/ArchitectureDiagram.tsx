@@ -170,6 +170,7 @@ export function ArchitectureDiagram({
           key={n.id}
           className={cn(
             'pointer-events-none absolute z-10 max-w-[min(40%,240px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-3 py-2.5 text-center shadow-lg ring-1 backdrop-blur-[2px]',
+            'pointer-events-none absolute z-10 max-w-[min(44%,210px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-3 py-2.5 text-center shadow-lg ring-1 backdrop-blur-[2px]',
             TYPE_RING[n.type] || 'ring-border bg-muted/30'
           )}
           style={{ left: `${n.x}%`, top: `${n.y}%` }}
