@@ -8,6 +8,7 @@ import { format, parseISO, startOfDay, startOfMonth, startOfWeek } from 'date-fn
 import { CalendarRange, GitCommit, GitMerge, Loader2, RefreshCw, Sparkles } from 'lucide-react'
 import { PageHeader } from '@/components/layout/page-header'
 import { ExportMenu } from '@/components/export/ExportMenu'
+import { MetricExplainer } from '@/components/layout/metric-explainer'
 import type { CsvSection } from '@/lib/export/csv-export'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -315,6 +316,14 @@ export function TemporalClient() {
               {data.debug.commits_processed ?? '—'}
             </p>
           ) : null}
+          <MetricExplainer
+            title="How to read temporal metrics"
+            points={[
+              'Intensity % is recent churn for a module in the selected window (relative to the busiest module).',
+              'Risk level in impact/churn combines dependency connectivity with recent code touches.',
+              'Drift statements highlight unusual change patterns, not guaranteed defects.',
+            ]}
+          />
 
           <section className="rounded-xl border border-border bg-gradient-to-br from-card/80 to-card/40 p-4">
             <div className="flex flex-wrap items-center gap-2">
