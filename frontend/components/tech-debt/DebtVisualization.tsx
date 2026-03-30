@@ -236,6 +236,22 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
           Scores can reflect either detected issues or the current level of analysis coverage. A `0.0` does not always
           mean the repository is risk-free.
         </p>
+        <details className="mb-4 rounded-lg border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
+          <summary className="cursor-pointer font-medium text-foreground">How scores are calculated</summary>
+          <div className="mt-2 space-y-1">
+            <p>
+              <span className="font-medium text-foreground">Category formula:</span>{' '}
+              {String(scoreExplanation.category_formula || 'severity-weighted impact normalized to 0-100')}
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Overall formula:</span>{' '}
+              {String(scoreExplanation.overall_formula || 'weighted average across categories')}
+            </p>
+            <p>
+              If no issues are found but analysis coverage exists, a provisional score may be shown (high=6, medium=4, low=2).
+            </p>
+          </div>
+        </details>
         {categoryScores.length > 0 ? (
           <div className="space-y-3">
             {categoryScores.map((item) => (
@@ -278,6 +294,18 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
                     {String(assessmentCoverage[item.rawName].note)}
                   </p>
                 ) : null}
+                <details className="mt-1 rounded-md border border-border/40 bg-background/40 px-2 py-1 text-[11px] text-muted-foreground">
+                  <summary className="cursor-pointer">How this score was computed</summary>
+                  <p className="mt-1">
+                    Raw issue-based score: <span className="text-foreground">{item.rawScore.toFixed(1)}</span>
+                    {item.rawScore === 0 ? ' (no issues detected in this category)' : ''}.
+                  </p>
+                  {item.rawScore === 0 && item.score > 0 ? (
+                    <p>
+                      Provisional score from coverage confidence: <span className="text-foreground">{item.score.toFixed(1)}</span>.
+                    </p>
+                  ) : null}
+                </details>
                 {item.rawScore === 0 && item.score > 0 ? (
                   <p className="mt-1 text-xs text-muted-foreground">
                     Showing provisional score from analysis coverage; rerun analysis for issue-based scoring.

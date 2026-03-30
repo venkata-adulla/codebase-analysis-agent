@@ -255,6 +255,13 @@ def _build_structural_summary(
 
     summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
 
+    details = (
+        f"It draws information from **{files_count} source file(s)**"
+        + (f", primarily located at `{path}`." if path else ".")
+    )
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
     opening = (
         f"**{name}** is a **{language}** module"
         + (f" classified as **{classification}**" if classification else "")

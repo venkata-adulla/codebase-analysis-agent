@@ -6,6 +6,7 @@ from services.code_quality_analyzer import CodeQualityAnalyzer
 from services.architecture_analyzer import ArchitectureAnalyzer
 from services.dependency_vulnerability_scanner import DependencyVulnerabilityScanner
 from services.documentation_debt_analyzer import DocumentationDebtAnalyzer
+from services.test_coverage_analyzer import TestCoverageAnalyzer
 from services.tech_debt_advisor import build_score_explanation
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ class TechDebtAnalyzer:
         self.architecture_analyzer = ArchitectureAnalyzer()
         self.dependency_scanner = DependencyVulnerabilityScanner()
         self.documentation_analyzer = DocumentationDebtAnalyzer()
+        self.test_coverage_analyzer = TestCoverageAnalyzer()
     
     def analyze_repository(
         self,
@@ -63,9 +65,9 @@ class TechDebtAnalyzer:
                 "note": "Documentation analysis is heuristic and currently checks repository docs presence plus missing Python docstrings.",
             },
             "test_coverage": {
-                "supported": False,
-                "confidence": "low",
-                "note": "Automated test-coverage analysis is not implemented yet; a zero score here does not imply good coverage.",
+                "supported": True,
+                "confidence": "medium",
+                "note": "Test coverage uses a heuristic estimate from discovered test files and optional coverage report artifacts.",
             },
         }
         
@@ -107,6 +109,14 @@ class TechDebtAnalyzer:
             logger.info(f"Found {len(documentation_items)} documentation issues")
         except Exception as e:
             logger.error(f"Error in documentation analysis: {e}")
+
+        # Run heuristic test-coverage analysis
+        try:
+            test_coverage_items = self.test_coverage_analyzer.analyze(repository_path)
+            all_debt_items.extend(test_coverage_items)
+            logger.info(f"Found {len(test_coverage_items)} test coverage findings")
+        except Exception as e:
+            logger.error(f"Error in test coverage analysis: {e}")
         
         # Calculate scores and prioritize
         debt_scores = self._calculate_category_scores(all_debt_items, assessment_coverage)
