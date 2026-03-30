@@ -224,6 +224,7 @@ def _build_structural_summary(
     classes_count = len(classes)
     funcs_count = len(functions)
 
+
     opening = f"**{name}** is a {language} module"
     if classification:
         opening += f" in the **{classification}** layer"
@@ -253,6 +254,13 @@ def _build_structural_summary(
         if coupling_parts
         else "From the current dependency graph snapshot, strong coupling signals were not detected yet."
     )
+
+    details = (
+        f"It draws information from **{files_count} source file(s)**"
+        + (f", primarily located at `{path}`." if path else ".")
+    )
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
 
     details = (
         f"It draws information from **{files_count} source file(s)**"
