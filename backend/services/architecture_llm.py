@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Dict, Optional
 
 from openai import OpenAI
@@ -121,22 +122,40 @@ def _fallback_narrative(
     ctx = static_payload.get("repository_context") or {}
     folder = ctx.get("folder_name") or ""
     readme = (ctx.get("readme_excerpt") or "").strip()
-    if folder:
-        arch.append(f"Repository folder: {folder}.")
+    if folder and not re.fullmatch(r"[0-9a-fA-F-]{16,}", str(folder)):
+        arch.append(f"This repository appears to be organized under the **{folder}** project folder.")
     if readme:
-        first_line = readme.splitlines()[0][:220] if readme else ""
-        if first_line:
-            arch.append(f"README lead-in: {first_line}")
+        readme_lines = [ln.strip() for ln in readme.splitlines() if ln.strip()]
+        lead = ""
+        for ln in readme_lines[:14]:
+            if ln.startswith("<!--"):
+                continue
+            if ln.startswith("!["):
+                continue
+            lead = ln
+            break
+        if lead:
+            lead = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", lead)
+            lead = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", lead)
+            lead = lead.lstrip("#").strip()
+            lead = re.sub(r"\s+", " ", lead)
+            lead = lead[:180]
+            if lead:
+                arch.append(f"Project context from README suggests: {lead}.")
     if fe:
         arch.append(f"Frontend technologies detected include {', '.join(fe[:5])}.")
     if be:
         arch.append(f"Backend stack includes {', '.join(be[:5])}.")
     if db:
-        arch.append(f"Data layer signals: {', '.join(db[:4])}.")
+        arch.append(f"Data layer signals include {', '.join(db[:4])}.")
     if other:
         arch.append(f"Additional infrastructure: {', '.join(other[:5])}.")
     if not arch:
-        arch.append("Limited manifest signals; run a full repository analysis for richer detection.")
+        arch.append("Limited manifest signals were detected; run a full repository analysis for richer architecture evidence.")
+
+    arch.append(
+        "Overall, this is a layered application view inferred from manifests and source layout rather than runtime tracing."
+    )
 
     style_txt = (
         f"Static sampling suggests a {style.get('label', 'mixed')} profile "
