@@ -75,6 +75,7 @@ export function ArchitectureDiagram({
   edges: ArchEdge[]
   className?: string
 }) {
+  const mid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const placedNodes = useMemo(() => layoutNodes(nodes), [nodes])
   const byId = useMemo(() => Object.fromEntries(placedNodes.map((n) => [n.id, n])), [placedNodes])
 
@@ -137,6 +138,9 @@ export function ArchitectureDiagram({
                 strokeLinecap="round"
                 className="text-primary/45"
                 strokeDasharray="2 1.2"
+                strokeWidth="1"
+                className="text-primary/50"
+                markerEnd={`url(#arch-arrow-${mid})`}
               />
             </g>
           )
@@ -165,6 +169,7 @@ export function ArchitectureDiagram({
           key={n.id}
           className={cn(
             'pointer-events-none absolute z-10 max-w-[min(40%,240px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-3 py-2.5 text-center shadow-lg ring-1 backdrop-blur-[2px]',
+            'pointer-events-none absolute z-10 max-w-[min(44%,210px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-3 py-2.5 text-center shadow-lg ring-1 backdrop-blur-[2px]',
             TYPE_RING[n.type] || 'ring-border bg-muted/30'
           )}
           style={{ left: `${n.x}%`, top: `${n.y}%` }}
