@@ -11,6 +11,7 @@ class Service(Base):
     name = Column(String, nullable=False)
     language = Column(String)
     description = Column(Text)
+    summary = Column(Text)
     file_path = Column(String)
     meta_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

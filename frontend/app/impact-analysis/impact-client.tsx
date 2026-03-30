@@ -14,6 +14,8 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { repositoryDisplayName } from '@/lib/repository-display'
+import { ExportMenu } from '@/components/export/ExportMenu'
+import type { CsvSection } from '@/lib/export/csv-export'
 
 const LS_KEY = 'caa:lastRepositoryId'
 
@@ -59,16 +61,93 @@ export function ImpactClient() {
         title="Impact analysis"
         description="Describe a proposed change and assess blast radius using the dependency graph and service metadata."
         actions={
-          <Link
-            href="/analyze"
-            className={cn(
-              buttonVariants({ variant: 'outline', size: 'sm' }),
-              'inline-flex items-center gap-1.5'
-            )}
-          >
-            New analysis
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link
+              href="/analyze"
+              className={cn(
+                buttonVariants({ variant: 'outline', size: 'sm' }),
+                'inline-flex items-center gap-1.5'
+              )}
+            >
+              New analysis
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Link>
+            <ExportMenu
+              analysisType="impact"
+              pageTitle="Impact analysis"
+              pageSlug="impact"
+              repoId={repositoryId || undefined}
+              repoName={analysis?.repository_name}
+              getJsonData={() => ({
+                repositoryId,
+                changeDescription,
+                analysis: analysis ?? null,
+              })}
+              {...(analysis
+                ? {
+                    getCsvSections: () => {
+                      const sections: CsvSection[] = []
+                      sections.push({
+                        name: 'Summary',
+                        headers: ['risk_level', 'total_impacted', 'risk_summary'],
+                        rows: [
+                          [
+                            analysis.risk_level ?? '',
+                            analysis.total_impacted ?? 0,
+                            (analysis.risk_summary as string) || '',
+                          ],
+                        ],
+                      })
+                      if (analysis.impacted_services?.length) {
+                        sections.push({
+                          name: 'Impacted services',
+                          headers: [
+                            'service_name',
+                            'impact_type',
+                            'depth',
+                            'classification',
+                            'impact_score',
+                            'reason',
+                          ],
+                          rows: analysis.impacted_services.map((s: Record<string, unknown>) => [
+                            String(s.service_name ?? ''),
+                            String(s.impact_type ?? ''),
+                            s.depth != null ? String(s.depth) : '',
+                            String(s.classification ?? ''),
+                            s.impact_score != null ? String(s.impact_score) : '',
+                            String(s.reason ?? ''),
+                          ]),
+                        })
+                      }
+                      if (analysis.recommendations?.length) {
+                        sections.push({
+                          name: 'Recommendations',
+                          headers: ['text'],
+                          rows: analysis.recommendations.map((r: string) => [r]),
+                        })
+                      }
+                      return sections
+                    },
+                    getPdfSections: () => [
+                      {
+                        heading: 'Risk summary',
+                        body: String(analysis.risk_summary || '—'),
+                      },
+                      {
+                        heading: 'Graph summary',
+                        body: JSON.stringify(analysis.graph_summary ?? {}, null, 2),
+                      },
+                      {
+                        heading: 'What could break (overall)',
+                        body:
+                          (analysis.global_what_could_break || []).map((line: string) => `• ${line}`).join('\n') ||
+                          '—',
+                      },
+                    ],
+                  }
+                : {})}
+            />
+          </div>
         }
       />
 

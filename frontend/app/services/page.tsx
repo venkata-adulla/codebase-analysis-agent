@@ -3,9 +3,10 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { ArrowRight, Boxes } from 'lucide-react'
 import api from '@/lib/api'
+import { ExportMenu } from '@/components/export/ExportMenu'
 import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { buttonVariants } from '@/components/ui/button'
@@ -17,6 +18,7 @@ import { serviceDisplayName } from '@/lib/service-display'
 const LS_KEY = 'caa:lastRepositoryId'
 
 export default function ServicesPage() {
+  const gridExportRef = useRef<HTMLDivElement>(null)
   const searchParams = useSearchParams()
   const pathname = usePathname()
   const router = useRouter()
@@ -32,13 +34,15 @@ export default function ServicesPage() {
   }, [pathname, repositoryId, router, showAll])
 
   const { data: services, isLoading } = useQuery({
-    queryKey: ['services', repositoryId],
+    queryKey: ['services', repositoryId, showAll ? 'all' : 'scoped'],
     queryFn: async () => {
       const response = await api.get('/services/', {
         params: repositoryId ? { repository_id: repositoryId } : undefined,
       })
       return response.data.services || []
     },
+    enabled: showAll || !!repositoryId,
+    staleTime: 5 * 60 * 1000,
   })
 
   const visibleServices = useMemo(() => {
@@ -65,6 +69,46 @@ export default function ServicesPage() {
         }
         actions={
           <div className="flex flex-wrap gap-2">
+            <ExportMenu
+              analysisType="service_inventory"
+              pageTitle="Service inventory"
+              pageSlug="services"
+              repoId={repositoryId || undefined}
+              captureRef={gridExportRef}
+              getJsonData={() => ({
+                analysisType: 'service_inventory',
+                repoId: repositoryId,
+                showAll,
+                services: visibleServices,
+              })}
+              getCsvSections={() => [
+                {
+                  name: 'Services',
+                  headers: [
+                    'id',
+                    'name',
+                    'repository_id',
+                    'language',
+                    'classification',
+                    'entry_point_count',
+                  ],
+                  rows: visibleServices.map((s: Record<string, unknown>) => [
+                    s.id,
+                    s.name,
+                    s.repository_id,
+                    s.language,
+                    s.classification,
+                    s.entry_point_count,
+                  ]),
+                },
+              ]}
+              getPdfSections={() => [
+                {
+                  heading: 'Overview',
+                  body: `Services listed: ${visibleServices.length}. Repository filter: ${repositoryId || 'all'}.`,
+                },
+              ]}
+            />
             <Link href="/analyze" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
               Analyze repository
             </Link>
@@ -92,9 +136,31 @@ export default function ServicesPage() {
       {isLoading ? (
         <div className="py-20 text-center text-sm text-muted-foreground">Loading…</div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div ref={gridExportRef} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {visibleServices.length > 0 ? (
-            visibleServices.map((service: any) => (
+            visibleServices.map((service: any) => {
+              const summaryText =
+                typeof service.summary === 'string' ? service.summary.trim() : ''
+              const descriptionText =
+                typeof service.description === 'string' ? service.description.trim() : ''
+              if (process.env.NODE_ENV === 'development') {
+                if (summaryText) {
+                  console.debug(
+                    '[ServiceInventory] summary',
+                    service.id,
+                    summaryText.slice(0, 160)
+                  )
+                } else if (descriptionText) {
+                  console.debug(
+                    '[ServiceInventory] description fallback',
+                    service.id,
+                    descriptionText.slice(0, 120)
+                  )
+                } else {
+                  console.debug('[ServiceInventory] no summary or description', service.id, service.name)
+                }
+              }
+              return (
               <Card
                 key={service.id}
                 className="group border-border/80 bg-card/50 transition-all hover:border-primary/30 hover:shadow-glow"
@@ -123,17 +189,33 @@ export default function ServicesPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="min-h-24">
-                    {service.description ? (
-                      <MarkdownBody compact className="max-h-28 overflow-hidden text-sm">
-                        {service.description}
-                      </MarkdownBody>
+                  <div className="rounded-lg border border-border/50 bg-muted/15 p-3">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Documentation summary
+                    </p>
+                    {summaryText ? (
+                      <p className="max-h-52 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                        {summaryText}
+                      </p>
+                    ) : descriptionText ? (
+                      <>
+                        <p className="mb-2 text-xs text-muted-foreground">
+                          AI short summary not stored — showing full documentation excerpt.
+                        </p>
+                        <MarkdownBody compact className="max-h-52 text-sm leading-relaxed">
+                          {descriptionText}
+                        </MarkdownBody>
+                      </>
                     ) : (
-                      <p className="text-sm text-muted-foreground">No documentation summary available yet.</p>
+                      <p className="text-sm text-muted-foreground">No summary available</p>
                     )}
                   </div>
                   <Link
-                    href={`/services/${service.id}`}
+                    href={
+                      repositoryId
+                        ? `/services/${encodeURIComponent(service.id)}?repo=${encodeURIComponent(repositoryId)}`
+                        : `/services/${encodeURIComponent(service.id)}`
+                    }
                     className={cn(
                       buttonVariants({ variant: 'ghost', size: 'sm' }),
                       'h-auto p-0 text-primary hover:text-primary'
@@ -143,7 +225,8 @@ export default function ServicesPage() {
                   </Link>
                 </CardContent>
               </Card>
-            ))
+              )
+            })
           ) : (
             <div className="col-span-full">
               <Card className="border-dashed border-border/80 bg-muted/20">

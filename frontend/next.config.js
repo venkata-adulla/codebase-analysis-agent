@@ -46,6 +46,7 @@ if (process.env.NODE_ENV === 'development') {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  transpilePackages: ['elkjs'],
   async rewrites() {
     return [
       {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useQuery, useMutation } from '@tanstack/react-query'
@@ -16,6 +16,8 @@ import { cn } from '@/lib/utils'
 import DebtVisualization from '@/components/tech-debt/DebtVisualization'
 import DebtList from '@/components/tech-debt/DebtList'
 import RemediationPlan from '@/components/tech-debt/RemediationPlan'
+import { ExportMenu } from '@/components/export/ExportMenu'
+import type { CsvSection } from '@/lib/export/csv-export'
 
 const LS_KEY = 'caa:lastRepositoryId'
 
@@ -25,6 +27,7 @@ export function TechDebtClient() {
 
   const [repositoryId, setRepositoryId] = useState('')
   const [selectedTab, setSelectedTab] = useState<'overview' | 'items' | 'plan'>('overview')
+  const techDebtExportRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (repoParam) {
@@ -82,6 +85,7 @@ export function TechDebtClient() {
       total_items: report.total_items,
       category_scores: report.category_scores,
       assessment_coverage: report.assessment_coverage,
+      score_explanation: report.score_explanation,
       items_by_category: report.items_by_category,
       items_by_severity: report.items_by_severity,
     }
@@ -114,16 +118,89 @@ export function TechDebtClient() {
         title="Technical debt"
         description="Deep-dive into quality and architecture debt for a repository you have already analyzed."
         actions={
-          <Link
-            href="/analyze"
-            className={cn(
-              buttonVariants({ variant: 'outline', size: 'sm' }),
-              'inline-flex items-center gap-1.5'
-            )}
-          >
-            New analysis
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link
+              href="/analyze"
+              className={cn(
+                buttonVariants({ variant: 'outline', size: 'sm' }),
+                'inline-flex items-center gap-1.5'
+              )}
+            >
+              New analysis
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Link>
+            {report && repositoryId ? (
+              <ExportMenu
+                analysisType="tech_debt"
+                pageTitle="Technical debt"
+                pageSlug="tech-debt"
+                repoId={repositoryId}
+                getJsonData={() => ({
+                  selectedTab,
+                  repositoryId,
+                  metrics: metrics ?? null,
+                  chartMetrics: chartMetrics ?? null,
+                  report,
+                })}
+                captureRef={techDebtExportRef}
+                getCsvSections={() => {
+                  const sections: CsvSection[] = []
+                  if (report.debt_items?.length) {
+                    sections.push({
+                      name: 'Debt items (report snapshot)',
+                      headers: ['id', 'title', 'severity', 'category', 'description'],
+                      rows: report.debt_items.map((item: Record<string, unknown>) => [
+                        String(item.id ?? ''),
+                        String(item.title ?? ''),
+                        String(item.severity ?? ''),
+                        String(item.category ?? ''),
+                        String(item.description ?? ''),
+                      ]),
+                    })
+                  }
+                  if (report.category_scores && typeof report.category_scores === 'object') {
+                    const entries = Object.entries(report.category_scores as Record<string, unknown>)
+                    sections.push({
+                      name: 'Category scores',
+                      headers: ['category', 'score'],
+                      rows: entries.map(([k, v]) => [k, String(v)]),
+                    })
+                  }
+                  if (chartMetrics?.items_by_severity && typeof chartMetrics.items_by_severity === 'object') {
+                    const entries = Object.entries(chartMetrics.items_by_severity as Record<string, unknown>)
+                    sections.push({
+                      name: 'Items by severity',
+                      headers: ['severity', 'count'],
+                      rows: entries.map(([k, v]) => [k, String(v)]),
+                    })
+                  }
+                  return sections
+                }}
+                getPdfSections={() => [
+                  {
+                    heading: 'Overview',
+                    body: [
+                      `Total debt score: ${report.total_debt_score ?? '—'}`,
+                      `Debt density: ${report.debt_density ?? '—'}`,
+                      `Total items: ${report.total_items ?? '—'}`,
+                      report.score_explanation ? `Explanation: ${report.score_explanation}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join('\n'),
+                  },
+                  {
+                    heading: 'Top priority (first items)',
+                    body:
+                      (report.debt_items?.slice(0, 8) || [])
+                        .map((item: { title?: string; description?: string; severity?: string }) =>
+                          `• [${item.severity}] ${item.title}\n  ${item.description || ''}`.trim()
+                        )
+                        .join('\n\n') || '—',
+                  },
+                ]}
+              />
+            ) : null}
+          </div>
         }
       />
 
@@ -190,7 +267,7 @@ export function TechDebtClient() {
       {metricsLoading || reportLoading ? (
         <div className="flex justify-center py-16 text-sm text-muted-foreground">Loading…</div>
       ) : report ? (
-        <>
+        <div ref={techDebtExportRef} className="space-y-6">
           {selectedTab === 'overview' && (
             <div className="space-y-6">
               <DebtVisualization metrics={chartMetrics} report={report} />
@@ -232,7 +309,7 @@ export function TechDebtClient() {
           {selectedTab === 'items' && <DebtList repositoryId={repositoryId} />}
 
           {selectedTab === 'plan' && <RemediationPlan repositoryId={repositoryId} />}
-        </>
+        </div>
       ) : (
         <Card className="border-dashed border-border/80 bg-muted/20">
           <CardContent className="py-14 text-center text-sm text-muted-foreground">

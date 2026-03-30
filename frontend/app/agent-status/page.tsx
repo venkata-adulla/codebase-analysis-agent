@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, CheckCircle2, Clock } from 'lucide-react'
@@ -9,10 +9,13 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ExportMenu } from '@/components/export/ExportMenu'
+import type { CsvSection } from '@/lib/export/csv-export'
 
 export default function AgentStatusPage() {
   const queryClient = useQueryClient()
   const [feedback, setFeedback] = useState<string | null>(null)
+  const humanReviewExportRef = useRef<HTMLDivElement>(null)
   const searchParams = useSearchParams()
   const repositoryId = searchParams.get('repo') || ''
 
@@ -56,6 +59,58 @@ export default function AgentStatusPage() {
       <PageHeader
         title="Human Review Checkpoints"
         description="This page currently shows human-facing checkpoints opened by the `human_review_agent`. There is no separate agent-self-review UI yet; your decision is stored on the running API for traceability and operator follow-up."
+        actions={
+          <ExportMenu
+            analysisType="human_review"
+            pageTitle="Human review checkpoints"
+            pageSlug="human-review"
+            repoId={repositoryId || undefined}
+            captureRef={humanReviewExportRef}
+            getJsonData={() => ({
+              repositoryFilter: repositoryId || null,
+              checkpoints: checkpoints ?? [],
+            })}
+            getCsvSections={() => {
+              const list = checkpoints ?? []
+              const sections: CsvSection[] = [
+                {
+                  name: 'All checkpoints',
+                  headers: ['id', 'status', 'agent', 'reason', 'question', 'response'],
+                  rows: list.map((c: Record<string, unknown>) => [
+                    String(c.id ?? ''),
+                    String(c.status ?? ''),
+                    String(c.agent ?? ''),
+                    String(c.reason ?? ''),
+                    String(c.question ?? ''),
+                    String(c.response ?? ''),
+                  ]),
+                },
+              ]
+              return sections
+            }}
+            getPdfSections={() => {
+              const pendingC = checkpoints?.filter((c: { status?: string }) => c.status === 'pending') ?? []
+              const resolvedC = checkpoints?.filter((c: { status?: string }) => c.status === 'resolved') ?? []
+              return [
+                {
+                  heading: 'Summary',
+                  body: `Filter: ${repositoryId || 'all repositories'}. Pending: ${pendingC.length}. Resolved: ${resolvedC.length}.`,
+                },
+                {
+                  heading: 'Pending (preview)',
+                  body:
+                    pendingC
+                      .slice(0, 12)
+                      .map(
+                        (c: { question?: string; agent?: string }) =>
+                          `• [${c.agent}] ${(c.question || '').slice(0, 200)}`
+                      )
+                      .join('\n') || 'None.',
+                },
+              ]
+            }}
+          />
+        }
       />
 
       {feedback && (
@@ -70,7 +125,7 @@ export default function AgentStatusPage() {
       {isLoading ? (
         <div className="py-20 text-center text-sm text-muted-foreground">Loading…</div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div ref={humanReviewExportRef} className="grid gap-6 lg:grid-cols-2">
           <Card className="border-border/80">
             <CardHeader>
               <div className="flex items-center justify-between gap-2">

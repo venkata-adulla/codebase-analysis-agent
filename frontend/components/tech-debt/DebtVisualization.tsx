@@ -62,6 +62,9 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
       }))
     : []
   const assessmentCoverage = metrics?.assessment_coverage || report?.assessment_coverage || {}
+  const scoreExplanation = metrics?.score_explanation || report?.score_explanation || {}
+  const overallWeights = scoreExplanation?.overall_weights || {}
+  const severityWeights = scoreExplanation?.severity_weights || {}
 
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -98,6 +101,57 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
               ? 'Moderate debt level - Monitor closely'
               : 'Low debt level - Good health'}
           </p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Higher score means more accumulated technical debt and remediation effort.
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border/80 bg-card/50 p-6">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">How the score is calculated</h3>
+        <div className="space-y-3 text-sm text-muted-foreground">
+          <p>
+            <span className="font-medium text-foreground">Overall formula:</span>{' '}
+            {String(scoreExplanation.overall_formula || 'Weighted average of category scores')}
+          </p>
+          <p>
+            <span className="font-medium text-foreground">Category formula:</span>{' '}
+            {String(
+              scoreExplanation.category_formula ||
+                'Sum of severity-weighted issue impacts, normalized to a 0-100 scale'
+            )}
+          </p>
+          {Object.keys(overallWeights).length > 0 ? (
+            <div>
+              <p className="font-medium text-foreground">Category weights</p>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {Object.entries(overallWeights).map(([name, value]) => (
+                  <span key={name} className="rounded-full border border-border/70 px-2 py-1 text-xs">
+                    {formatCategoryLabel(name)}: {(Number(value) * 100).toFixed(0)}%
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {Object.keys(severityWeights).length > 0 ? (
+            <div>
+              <p className="font-medium text-foreground">Severity weights</p>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {Object.entries(severityWeights).map(([name, value]) => (
+                  <span key={name} className="rounded-full border border-border/70 px-2 py-1 text-xs">
+                    {formatCategoryLabel(name)}: {Number(value).toFixed(1)}x
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {Array.isArray(scoreExplanation.notes) && scoreExplanation.notes.length > 0 ? (
+            <ul className="list-disc space-y-1 pl-5">
+              {scoreExplanation.notes.map((note: string) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       </div>
 

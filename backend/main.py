@@ -11,7 +11,11 @@ from api.routes import (
     documentation,
     human_review,
     metrics,
-    tech_debt
+    tech_debt,
+    chat,
+    architecture,
+    temporal,
+    compare_repos,
 )
 from core.config import get_settings
 from core.database import close_neo4j_driver, init_db
@@ -86,6 +90,26 @@ app.include_router(
     tech_debt.router,
     prefix="/api/tech-debt",
     tags=["tech-debt"]
+)
+app.include_router(
+    chat.router,
+    prefix="/api/chat",
+    tags=["chat"]
+)
+app.include_router(
+    architecture.router,
+    prefix="/api/architecture",
+    tags=["architecture"]
+)
+app.include_router(
+    temporal.router,
+    prefix="/api",
+    tags=["temporal"]
+)
+app.include_router(
+    compare_repos.router,
+    prefix="/api",
+    tags=["compare"]
 )
 
 

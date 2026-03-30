@@ -6,8 +6,7 @@ from services.code_quality_analyzer import CodeQualityAnalyzer
 from services.architecture_analyzer import ArchitectureAnalyzer
 from services.dependency_vulnerability_scanner import DependencyVulnerabilityScanner
 from services.documentation_debt_analyzer import DocumentationDebtAnalyzer
-
-logger = logging.getLogger(__name__)
+from services.tech_debt_advisor import build_score_explanation
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +125,7 @@ class TechDebtAnalyzer:
             "items_by_category": self._group_by_category(all_debt_items),
             "items_by_severity": self._group_by_severity(all_debt_items),
             "assessment_coverage": assessment_coverage,
+            "score_explanation": build_score_explanation(),
             "analyzed_at": datetime.utcnow().isoformat(),
         }
     

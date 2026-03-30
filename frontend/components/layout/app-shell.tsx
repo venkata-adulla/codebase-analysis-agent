@@ -1,32 +1,78 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   BarChart3,
   Bot,
+  Building2,
   GitBranch,
+  GitCompare,
+  History,
   Home,
   Layers,
   LayoutDashboard,
   Shield,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { CodebaseChatRoot } from '@/components/chat/CodebaseChatRoot'
 
 const nav = [
   { href: '/', label: 'Overview', icon: Home },
   { href: '/analyze', label: 'Analyze', icon: GitBranch },
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/dependency-graph', label: 'Dependencies', icon: Layers },
+  { href: '/architecture', label: 'Architecture', icon: Building2 },
+  { href: '/temporal', label: 'Temporal', icon: History },
+  { href: '/compare', label: 'Compare', icon: GitCompare },
   { href: '/services', label: 'Services', icon: BarChart3 },
   { href: '/impact-analysis', label: 'Impact', icon: Shield },
   { href: '/tech-debt', label: 'Tech debt', icon: Activity },
   { href: '/agent-status', label: 'Human Review', icon: Bot },
 ]
 
+const LAST_REPO_KEY = 'caa:lastRepositoryId'
+const repoScopedRoutes = new Set([
+  '/dependency-graph',
+  '/architecture',
+  '/temporal',
+  '/services',
+  '/impact-analysis',
+  '/tech-debt',
+  '/agent-status',
+])
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [lastRepoId, setLastRepoId] = useState('')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      setLastRepoId(localStorage.getItem(LAST_REPO_KEY) || '')
+    } catch {
+      /* ignore */
+    }
+  }, [pathname])
+
+  const currentRepoId = searchParams.get('repo') || lastRepoId
+
+  const navItems = useMemo(
+    () =>
+      nav.map((item) => {
+        if (!currentRepoId || !repoScopedRoutes.has(item.href)) {
+          return item
+        }
+        return {
+          ...item,
+          href: `${item.href}?repo=${encodeURIComponent(currentRepoId)}`,
+        }
+      }),
+    [currentRepoId]
+  )
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -42,11 +88,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
-          {nav.map((item) => {
+          {navItems.map((item) => {
+            const itemPath = item.href.split('?')[0]
             const active =
-              item.href === '/'
+              itemPath === '/'
                 ? pathname === '/'
-                : pathname === item.href || pathname.startsWith(`${item.href}/`)
+                : pathname === itemPath || pathname.startsWith(`${itemPath}/`)
             const Icon = item.icon
             return (
               <Link
@@ -86,24 +133,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="font-semibold">Codebase Analysis</span>
           </div>
           <nav className="flex gap-1 overflow-x-auto">
-            {nav.slice(0, 4).map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  'whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium',
-                  pathname === item.href ? 'bg-muted text-foreground' : 'text-muted-foreground'
-                )}
-              >
-                {item.label}
-              </Link>
-            ))}
+            {navItems.slice(0, 4).map((item) => {
+              const itemPath = item.href.split('?')[0]
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    'whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium',
+                    pathname === itemPath ? 'bg-muted text-foreground' : 'text-muted-foreground'
+                  )}
+                >
+                  {item.label}
+                </Link>
+              )
+            })}
           </nav>
         </header>
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
           <div className="mx-auto max-w-6xl">{children}</div>
         </main>
+        <CodebaseChatRoot />
       </div>
     </div>
   )

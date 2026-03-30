@@ -1,5 +1,6 @@
 'use client'
 
+import { useRef } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, ArrowRight, FolderGit2, GitBranch } from 'lucide-react'
@@ -10,10 +11,13 @@ import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { repositoryDisplayName } from '@/lib/repository-display'
 import { cn } from '@/lib/utils'
+import { ExportMenu } from '@/components/export/ExportMenu'
+import type { CsvSection } from '@/lib/export/csv-export'
 
 type RepoRow = { id: string; status?: string; progress?: number; name?: string }
 
 export default function DashboardPage() {
+  const dashboardExportRef = useRef<HTMLDivElement>(null)
   const { data: repositories, isLoading } = useQuery({
     queryKey: ['repositories'],
     queryFn: async () => {
@@ -36,16 +40,57 @@ export default function DashboardPage() {
         title="Dashboard"
         description="Track repository analyses initiated from this session. IDs are generated when you start a run from Analyze or the API."
         actions={
-          <Link
-            href="/analyze"
-            className={cn(buttonVariants({ size: 'sm' }), 'gap-2 shadow-glow')}
-          >
-            <GitBranch className="h-4 w-4" />
-            Analyze repository
-          </Link>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <ExportMenu
+              analysisType="dashboard"
+              pageTitle="Dashboard"
+              pageSlug="dashboard"
+              captureRef={dashboardExportRef}
+              getJsonData={() => ({
+                repositories: repositories ?? [],
+              })}
+              getCsvSections={() => {
+                const rows = repositories ?? []
+                const sections: CsvSection[] = [
+                  {
+                    name: 'Repositories',
+                    headers: ['id', 'name', 'status', 'progress'],
+                    rows: rows.map((r) => [
+                      r.id,
+                      r.name ?? '',
+                      r.status ?? '',
+                      r.progress != null ? Math.round(r.progress * 100) / 100 : '',
+                    ]),
+                  },
+                ]
+                return sections
+              }}
+              getPdfSections={() => {
+                const list = repositories ?? []
+                const active = list.filter((r) => ['queued', 'running'].includes((r.status || '').toLowerCase()))
+                const done = list.filter((r) =>
+                  ['completed', 'complete', 'success'].includes((r.status || '').toLowerCase())
+                )
+                return [
+                  {
+                    heading: 'Session summary',
+                    body: `Total repositories in session: ${list.length}. Active/queued: ${active.length}. Completed: ${done.length}.`,
+                  },
+                ]
+              }}
+            />
+            <Link
+              href="/analyze"
+              className={cn(buttonVariants({ size: 'sm' }), 'gap-2 shadow-glow')}
+            >
+              <GitBranch className="h-4 w-4" />
+              Analyze repository
+            </Link>
+          </div>
         }
       />
 
+      <div ref={dashboardExportRef} className="space-y-8">
       <div className="grid gap-4 sm:grid-cols-3">
         <Card className="border-border/80 bg-card/50">
           <CardHeader className="pb-2">
@@ -179,6 +224,7 @@ export default function DashboardPage() {
           )}
         </CardContent>
       </Card>
+      </div>
     </div>
   )
 }

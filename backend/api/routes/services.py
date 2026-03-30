@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Optional, Any, Dict
 from sqlalchemy.orm import Session
@@ -7,8 +8,14 @@ from core.database import SessionLocal
 from models.repository import Repository
 from models.service import Service as ServiceRow
 from services.repository_scope import resolve_repository_id
+from services.service_description import (
+    build_service_description,
+    build_service_summary_plain,
+    is_stub_description,
+)
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def get_db():
@@ -40,6 +47,26 @@ async def list_services(
         else:
             q = q.filter(ServiceRow.repository_id == repository_id)
     rows = q.order_by(ServiceRow.repository_id.desc(), ServiceRow.name.asc()).all()
+    missing_summary = sum(
+        1 for row, _ in rows if not (getattr(row, "summary", None) or "").strip()
+    )
+    if rows:
+        logger.debug(
+            "list_services: total=%d missing_summary=%d repository_id=%s",
+            len(rows),
+            missing_summary,
+            repository_id,
+        )
+    def row_summary(row: ServiceRow) -> Optional[str]:
+        raw = (row.summary or "").strip()
+        if raw:
+            return raw
+        return build_service_summary_plain(
+            service_name=str(row.name or "Service"),
+            language=row.language,
+            metadata=row.meta_data or {},
+        )
+
     return {
         "services": [
             {
@@ -50,7 +77,17 @@ async def list_services(
                 "language": row.language or "",
                 "classification": (row.meta_data or {}).get("classification"),
                 "entry_point_count": int((row.meta_data or {}).get("entry_point_count") or 0),
-                "description": row.description,
+                "summary": row_summary(row),
+                "description": (
+                    row.description
+                    if not is_stub_description(row.description)
+                    else build_service_description(
+                        service_name=str(row.name or "Service"),
+                        language=row.language,
+                        metadata=row.meta_data or {},
+                        path=row.file_path,
+                    )
+                ),
                 "path": row.file_path,
                 "meta_data": row.meta_data,
                 "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -89,6 +126,14 @@ async def get_service(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Service not found",
         )
+    summary_val = (row.summary or "").strip() or None
+    if not summary_val:
+        summary_val = build_service_summary_plain(
+            service_name=str(row.name or "Service"),
+            language=row.language,
+            metadata=row.meta_data or {},
+        )
+        logger.debug("get_service: id=%s name=%s using structural summary fallback", row.id, row.name)
     payload: Dict[str, Any] = {
         "id": row.id,
         "name": row.name,
@@ -97,7 +142,17 @@ async def get_service(
             db.query(Repository.name).filter(Repository.id == row.repository_id).scalar()
         ),
         "language": row.language or "",
-        "description": row.description,
+        "summary": summary_val,
+        "description": (
+            row.description
+            if not is_stub_description(row.description)
+            else build_service_description(
+                service_name=str(row.name or "Service"),
+                language=row.language,
+                metadata=row.meta_data or {},
+                path=row.file_path,
+            )
+        ),
         "path": row.file_path,
         "meta_data": row.meta_data,
         "created_at": row.created_at.isoformat() if row.created_at else None,

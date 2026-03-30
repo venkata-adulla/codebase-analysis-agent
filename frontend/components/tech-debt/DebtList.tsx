@@ -155,6 +155,54 @@ export default function DebtList({ repositoryId }: DebtListProps) {
                   <span className="font-medium text-foreground">{item.status || 'open'}</span>
                 </span>
               </div>
+
+              {item.code_snippet || item.suggested_fix?.after_code ? (
+                <details className="mt-4 rounded-lg border border-border/70 bg-muted/20 p-3">
+                  <summary className="cursor-pointer text-sm font-medium text-foreground">
+                    Suggested remediated code
+                  </summary>
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    {item.code_snippet ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Current snippet
+                        </p>
+                        <pre className="overflow-x-auto rounded-md border border-border/70 bg-background/80 p-3 text-xs text-foreground whitespace-pre-wrap">
+                          <code>{item.code_snippet}</code>
+                        </pre>
+                      </div>
+                    ) : null}
+                    {item.suggested_fix?.after_code ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Remediated example
+                        </p>
+                        <pre className="overflow-x-auto rounded-md border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-foreground whitespace-pre-wrap">
+                          <code>{item.suggested_fix.after_code}</code>
+                        </pre>
+                      </div>
+                    ) : null}
+                  </div>
+                  {item.suggested_fix?.summary ? (
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">Why this fix:</span>{' '}
+                      {item.suggested_fix.summary}
+                    </p>
+                  ) : null}
+                  {Array.isArray(item.suggested_fix?.notes) && item.suggested_fix.notes.length > 0 ? (
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                      {item.suggested_fix.notes.map((note: string, idx: number) => (
+                        <li key={`${item.id}-note-${idx}`}>{note}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {item.suggested_fix?.confidence ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Confidence: {item.suggested_fix.confidence}. Review this snippet before applying it.
+                    </p>
+                  ) : null}
+                </details>
+              ) : null}
             </div>
           ))
         ) : (

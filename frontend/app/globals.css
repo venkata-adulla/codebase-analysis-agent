@@ -51,3 +51,18 @@
 .react-flow__background {
   @apply bg-muted/30;
 }
+
+/* Dependency graph canvas — match app shell (no white pane from default React Flow styles) */
+.dependency-graph-flow .react-flow {
+  background-color: hsl(var(--muted) / 0.4);
+}
+.dependency-graph-flow .react-flow__renderer {
+  background-color: transparent;
+}
+.dependency-graph-flow .react-flow__pane {
+  background-color: transparent;
+}
+.dependency-graph-flow .react-flow__controls,
+.dependency-graph-flow .react-flow__minimap {
+  @apply border-border bg-card/95 text-foreground shadow-md;
+}

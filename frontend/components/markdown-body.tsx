@@ -19,6 +19,11 @@ const mdComponents = {
   h3: ({ children }: { children?: ReactNode }) => (
     <h3 className="mb-1.5 mt-3 text-sm font-semibold text-foreground">{children}</h3>
   ),
+  h4: ({ children }: { children?: ReactNode }) => (
+    <h4 className="mb-1.5 mt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground first:mt-0">
+      {children}
+    </h4>
+  ),
   p: ({ children }: { children?: ReactNode }) => (
     <p className="mb-3 last:mb-0 text-muted-foreground">{children}</p>
   ),

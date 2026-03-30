@@ -1,14 +1,31 @@
 """Persist discovered services (and doc snippets) from orchestrator state to Postgres."""
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
 from core.database import SessionLocal
 from models.service import Service as ServiceRow
+from services.service_description import build_service_description, is_stub_description as _is_stub_description
 
 logger = logging.getLogger(__name__)
+
+
+def _lookup_documentation_blob(
+    documentation: Any, service_id: str
+) -> Optional[Dict[str, Any]]:
+    """Match documentation entry by service id (keys may be str or other hashables)."""
+    if not isinstance(documentation, dict):
+        return None
+    key = str(service_id or "").strip()
+    blob = documentation.get(key)
+    if isinstance(blob, dict):
+        return blob
+    for k, v in documentation.items():
+        if str(k).strip() == key and isinstance(v, dict):
+            return v
+    return None
 
 
 def persist_services_and_docs(
@@ -48,11 +65,28 @@ def persist_services_and_docs(
             }
             row = db.query(ServiceRow).filter(ServiceRow.id == sid).first()
             desc = s.get("description")
-            doc_blob = documentation.get(sid) if isinstance(documentation, dict) else None
+            doc_blob = _lookup_documentation_blob(documentation, sid)
+            summary_from_doc: Optional[str] = None
             if isinstance(doc_blob, dict):
                 doc_text = doc_blob.get("description")
-                if isinstance(doc_text, str) and doc_text.strip():
+                if isinstance(doc_text, str) and doc_text.strip() and not _is_stub_description(doc_text):
                     desc = doc_text.strip()[:10000]
+                sum_text = doc_blob.get("summary")
+                if isinstance(sum_text, str) and sum_text.strip():
+                    summary_from_doc = sum_text.strip()[:4000]
+                    logger.info(
+                        "Persisting service %s summary_len=%d",
+                        sid,
+                        len(summary_from_doc),
+                    )
+            # Replace empty or bare-stub descriptions with a structured fallback
+            if _is_stub_description(desc):
+                desc = build_service_description(
+                    service_name=name,
+                    language=s.get("language"),
+                    metadata=metadata,
+                    path=s.get("path"),
+                )
 
             if row:
                 row.name = name
@@ -62,6 +96,8 @@ def persist_services_and_docs(
                 row.meta_data = metadata
                 if desc is not None:
                     row.description = desc
+                if summary_from_doc is not None:
+                    row.summary = summary_from_doc
             else:
                 db.add(
                     ServiceRow(
@@ -70,6 +106,7 @@ def persist_services_and_docs(
                         name=name,
                         language=s.get("language"),
                         description=desc,
+                        summary=summary_from_doc,
                         file_path=s.get("path"),
                         meta_data=metadata,
                     )
@@ -80,11 +117,35 @@ def persist_services_and_docs(
                 if not isinstance(doc_blob, dict):
                     continue
                 text = doc_blob.get("description")
-                if not isinstance(text, str) or not text.strip():
+                if _is_stub_description(text):
                     continue
                 row = db.query(ServiceRow).filter(ServiceRow.id == str(sid)).first()
-                if row and (not row.description or not str(row.description).strip()):
-                    row.description = text.strip()[:10000]
+                if row and _is_stub_description(row.description):
+                    row.description = (text or "").strip()[:10000]
+                sum_text = doc_blob.get("summary")
+                if (
+                    row
+                    and isinstance(sum_text, str)
+                    and sum_text.strip()
+                    and not (row.summary or "").strip()
+                ):
+                    row.summary = sum_text.strip()[:4000]
+                    logger.info(
+                        "Backfilled summary for service %s summary_len=%d",
+                        sid,
+                        len(row.summary or ""),
+                    )
+
+        # Safety net: replace any stub descriptions that slipped through
+        for row in db.query(ServiceRow).filter(ServiceRow.repository_id == repository_id).all():
+            if not _is_stub_description(row.description):
+                continue
+            row.description = build_service_description(
+                service_name=str(row.name or "Service"),
+                language=row.language,
+                metadata=row.meta_data or {},
+                path=row.file_path,
+            )
 
         db.commit()
         logger.info("Persisted services for repository %s", repository_id)

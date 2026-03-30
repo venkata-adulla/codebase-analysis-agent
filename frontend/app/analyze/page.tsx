@@ -27,14 +27,98 @@ const LS_KEY = 'caa:lastRepositoryId'
 type SourceTab = 'url' | 'github' | 'local'
 
 const terminalStatuses = new Set(['failed', 'completed', 'complete', 'error', 'done', 'success'])
-const workflowStages = [
-  'Planning Agent',
-  'Code Browser Agent',
-  'Dependency Mapper Agent',
-  'Tech Debt Agent',
-  'Documentation Agent',
-  'Impact Agent',
-  'Human Review Agent',
+/** Must match backend ``WORKFLOW_SEQUENCE`` order (documentation before tech debt). */
+const WORKFLOW_AGENTS: { id: string; label: string }[] = [
+  { id: 'planning_agent', label: 'Planning Agent' },
+  { id: 'code_browser_agent', label: 'Code Browser Agent' },
+  { id: 'dependency_mapper_agent', label: 'Dependency Mapper Agent' },
+  { id: 'documentation_agent', label: 'Documentation Agent' },
+  { id: 'tech_debt_agent', label: 'Tech Debt Agent' },
+  { id: 'impact_agent', label: 'Impact Agent' },
+  { id: 'human_review_agent', label: 'Human Review Agent' },
+]
+
+/**
+ * User-facing capabilities and which orchestrator agents must finish before each is available.
+ * Status: completed when every listed agent is in completed_agents; blocked if the run fails first.
+ */
+const ANALYSIS_FEATURES: {
+  id: string
+  label: string
+  hint: string
+  /** Agent ids required (all must complete) */
+  dependsOn: string[]
+}[] = [
+  {
+    id: 'architecture',
+    label: 'Architecture & stack',
+    hint: 'Static stack + diagram',
+    dependsOn: ['dependency_mapper_agent'],
+  },
+  {
+    id: 'temporal',
+    label: 'Temporal / git history',
+    hint: 'Commits & drift',
+    dependsOn: ['code_browser_agent'],
+  },
+  {
+    id: 'tech_debt',
+    label: 'Tech debt report',
+    hint: 'Persisted after pipeline',
+    dependsOn: ['tech_debt_agent'],
+  },
+  {
+    id: 'impact',
+    label: 'Impact analysis',
+    hint: 'Blast-radius prep',
+    dependsOn: ['impact_agent'],
+  },
+  {
+    id: 'services',
+    label: 'Service inventory',
+    hint: 'From documentation step',
+    dependsOn: ['documentation_agent'],
+  },
+  {
+    id: 'graph',
+    label: 'Dependency graph',
+    hint: 'Neo4j-backed',
+    dependsOn: ['dependency_mapper_agent'],
+  },
+  {
+    id: 'compare',
+    label: 'Cross-repo compare',
+    hint: 'Optional',
+    dependsOn: ['human_review_agent'],
+  },
+]
+
+type FeatureRunStatus = 'completed' | 'in_progress' | 'pending' | 'blocked'
+
+function computeFeatureStatus(
+  dependsOn: string[],
+  completedAgents: string[],
+  currentAgent: string | null,
+  pipelineFailed: boolean,
+): FeatureRunStatus {
+  const allMet = dependsOn.length > 0 && dependsOn.every((id) => completedAgents.includes(id))
+  if (allMet) return 'completed'
+  if (pipelineFailed) return 'blocked'
+  const someMet = dependsOn.some((id) => completedAgents.includes(id))
+  const currentTouches = currentAgent ? dependsOn.includes(currentAgent) : false
+  if (currentTouches || someMet) return 'in_progress'
+  return 'pending'
+}
+
+const analysisViews = [
+  { label: 'Architecture', href: '/architecture', repoScoped: true },
+  { label: 'Temporal', href: '/temporal', repoScoped: true },
+  { label: 'Tech debt', href: '/tech-debt', repoScoped: true },
+  { label: 'Impact', href: '/impact-analysis', repoScoped: true },
+  { label: 'Services', href: '/services', repoScoped: true },
+  { label: 'Graph', href: '/dependency-graph', repoScoped: true },
+  { label: 'Human Review', href: '/agent-status', repoScoped: true },
+  { label: 'Compare', href: '/compare', repoScoped: false },
 ]
 
 function isFailureStatus(status?: string | null) {
@@ -110,6 +194,10 @@ export default function AnalyzePage() {
         status: string
         progress?: number
         message?: string
+        workflow?: string[]
+        completed_agents?: string[]
+        current_agent?: string | null
+        agent_total?: number
       }
     },
     enabled: !!activeRepoId,
@@ -134,12 +222,43 @@ export default function AnalyzePage() {
   }
 
   const status = statusData?.status?.toLowerCase() ?? analyzeMutation.data?.status?.toLowerCase()
-  const progressPct = Math.round(
-    Math.max(0, Math.min(100, (typeof statusData?.progress === 'number' ? statusData.progress : 0) * 100))
+  const completedAgents = statusData?.completed_agents ?? []
+  const currentAgent = statusData?.current_agent ?? null
+  const pipelineDone =
+    terminalStatuses.has(status || '') && !isFailureStatus(status || '')
+
+  const agentRowState = (agentId: string) => {
+    const done =
+      completedAgents.includes(agentId) ||
+      (pipelineDone && !isFailureStatus(status || ''))
+    const current =
+      !pipelineDone &&
+      !isFailureStatus(status || '') &&
+      currentAgent === agentId
+    const nextAfterCompleted = WORKFLOW_AGENTS[completedAgents.length]?.id
+    const failed =
+      isFailureStatus(status || '') && !done && agentId === nextAfterCompleted
+    return { done, current, failed }
+  }
+
+  const pipelineFailed = isFailureStatus(status || '')
+
+  const agentProgressPct = Math.round(
+    (Math.min(completedAgents.length, WORKFLOW_AGENTS.length) / WORKFLOW_AGENTS.length) * 100,
   )
-  const runningMatch = statusData?.message?.match(/Running\s+(.+)\s+\((\d+)\/(\d+)\)/i)
-  const runningStage = runningMatch?.[1]?.trim()
-  const completedCount = runningMatch ? parseInt(runningMatch[2], 10) : (terminalStatuses.has(status || '') ? workflowStages.length : 0)
+
+  const featureStatuses = ANALYSIS_FEATURES.map((f) => ({
+    ...f,
+    status: computeFeatureStatus(
+      f.dependsOn,
+      completedAgents,
+      currentAgent,
+      pipelineFailed,
+    ),
+  }))
+
+  const featuresCompletedCount = featureStatuses.filter((f) => f.status === 'completed').length
+  const featureProgressPct = Math.round((featuresCompletedCount / ANALYSIS_FEATURES.length) * 100)
 
   return (
     <div className="space-y-8">
@@ -329,79 +448,133 @@ export default function AnalyzePage() {
                     <Copy className="h-3.5 w-3.5" />
                     Copy analysis ID
                   </Button>
-                  <Link
-                    href={`/tech-debt?repo=${encodeURIComponent(activeRepoId)}`}
-                    className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-                  >
-                    Tech debt
-                  </Link>
-                  <Link
-                    href={`/impact-analysis?repo=${encodeURIComponent(activeRepoId)}`}
-                    className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-                  >
-                    Impact
-                  </Link>
-                  <Link
-                    href={`/services?repo=${encodeURIComponent(activeRepoId)}`}
-                    className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-                  >
-                    Services
-                  </Link>
-                  <Link
-                    href={`/dependency-graph?repo=${encodeURIComponent(activeRepoId)}`}
-                    className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-                  >
-                    Graph
-                  </Link>
+                  {analysisViews.map((view) => (
+                    <Link
+                      key={view.label}
+                      href={
+                        view.repoScoped
+                          ? `${view.href}?repo=${encodeURIComponent(activeRepoId)}`
+                          : view.href
+                      }
+                      className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+                    >
+                      {view.label}
+                    </Link>
+                  ))}
                 </div>
-                {typeof statusData?.progress === 'number' && (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Progress</span>
-                      <span>{progressPct}%</span>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Feature progress</span>
+                    <span>
+                      {featuresCompletedCount}/{ANALYSIS_FEATURES.length} · {featureProgressPct}%
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{ width: `${featureProgressPct}%` }}
+                    />
+                  </div>
+                  {statusData?.message ? (
+                    <p className="text-xs text-muted-foreground">{statusData.message}</p>
+                  ) : null}
+                  {isFailureStatus(status) && statusData?.message ? (
+                    <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+                      {statusData.message}
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary transition-all"
-                        style={{ width: `${progressPct}%` }}
-                      />
+                  ) : null}
+
+                  <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Pipeline execution
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {Math.min(completedAgents.length, WORKFLOW_AGENTS.length)}/{WORKFLOW_AGENTS.length}{' '}
+                        · {agentProgressPct}%
+                      </p>
                     </div>
-                    {statusData?.message ? (
-                      <p className="text-xs text-muted-foreground">{statusData.message}</p>
-                    ) : null}
-                    {isFailureStatus(status) && statusData?.message ? (
-                      <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300">
-                        {statusData.message}
-                      </div>
-                    ) : null}
-                    <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-2">
-                      {workflowStages.map((stage, idx) => {
-                        const stageLower = stage.toLowerCase()
-                        const isCurrent = !terminalStatuses.has(status || '') && runningStage?.toLowerCase() === stageLower
-                        const isDone = idx < completedCount || (!isFailureStatus(status) && terminalStatuses.has(status || ''))
-                        const isFailed = isFailureStatus(status) && idx >= completedCount
+                    <div className="space-y-1">
+                      {WORKFLOW_AGENTS.map((agent) => {
+                        const { done, current, failed } = agentRowState(agent.id)
                         return (
                           <div
-                            key={stage}
+                            key={agent.id}
                             className={cn(
                               'text-xs',
-                              isCurrent
-                                ? 'text-primary'
-                                : isFailed
-                                  ? 'text-red-400/70'
-                                  : isDone
+                              current
+                                ? 'font-medium text-primary'
+                                : failed
+                                  ? 'text-red-400/80'
+                                  : done
                                     ? 'text-emerald-400'
-                                    : 'text-muted-foreground/60'
+                                    : 'text-muted-foreground/60',
                             )}
                           >
-                            {isCurrent ? '▶ ' : isFailed ? '✗ ' : isDone ? '✓ ' : '• '}
-                            {stage}
+                            {current ? '▶ ' : failed ? '✗ ' : done ? '✓ ' : '• '}
+                            {agent.label}
                           </div>
                         )
                       })}
                     </div>
                   </div>
-                )}
+
+                  <div className="space-y-2 rounded-md border border-border/70 bg-muted/15 p-2">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Available features
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/80">
+                      Each capability unlocks when its required agents finish. Progress above reflects how
+                      many features are ready.
+                    </p>
+                    <div className="space-y-2">
+                      {featureStatuses.map((f) => {
+                        const depNames = f.dependsOn
+                          .map((id) => WORKFLOW_AGENTS.find((a) => a.id === id)?.label ?? id)
+                          .join(' · ')
+                        const st = f.status
+                        const mark =
+                          st === 'completed'
+                            ? '✓'
+                            : st === 'in_progress'
+                              ? '◐'
+                              : st === 'blocked'
+                                ? '✗'
+                                : '○'
+                        return (
+                          <div key={f.id} className="rounded border border-border/40 bg-background/30 px-2 py-1.5">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <span
+                                className={cn(
+                                  'text-xs font-medium',
+                                  st === 'completed' && 'text-emerald-400',
+                                  st === 'in_progress' && 'text-primary',
+                                  st === 'pending' && 'text-muted-foreground/70',
+                                  st === 'blocked' && 'text-red-400/90',
+                                )}
+                              >
+                                {mark} {f.label}
+                              </span>
+                              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                {st === 'completed'
+                                  ? 'Ready'
+                                  : st === 'in_progress'
+                                    ? 'In progress'
+                                    : st === 'blocked'
+                                      ? 'Blocked'
+                                      : 'Pending'}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground/80">{f.hint}</p>
+                            <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                              After: {depNames}
+                            </p>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
               </>
             )}
           </CardContent>

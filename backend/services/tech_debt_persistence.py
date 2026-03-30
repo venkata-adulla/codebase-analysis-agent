@@ -25,6 +25,7 @@ def _empty_analysis() -> Dict[str, Any]:
         },
         "items_by_category": {},
         "items_by_severity": {},
+        "score_explanation": {},
         "debt_items": [],
     }
 
@@ -67,6 +68,7 @@ def save_tech_debt_report(
                 "generated_at": datetime.utcnow().isoformat(),
                 "source": source,
                 "assessment_coverage": analysis_result.get("assessment_coverage") or {},
+                "score_explanation": analysis_result.get("score_explanation") or {},
             },
         )
         db.add(report)
@@ -81,10 +83,12 @@ def save_tech_debt_report(
                 priority=item.get("priority", 3),
                 title=item.get("title", "Unknown issue"),
                 description=item.get("description"),
+                code_snippet=item.get("code_snippet"),
                 line_start=item.get("line_start"),
                 line_end=item.get("line_end"),
                 impact_score=item.get("impact_score"),
                 effort_estimate=item.get("effort_estimate"),
+                meta_data=item.get("meta_data") or item.get("metadata") or {},
                 status=item.get("status", "open"),
             )
             db.add(tech_item)

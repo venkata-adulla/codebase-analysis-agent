@@ -43,7 +43,11 @@ class DependencyAnalyzer:
         
         # Identify services (directories with main files, package.json, etc.)
         services = self._identify_services(repository_path)
-        if self._should_use_python_modules(path, services):
+        if self._should_use_java_package_modules(path, services):
+            java_modules = self._identify_java_package_services(path)
+            if java_modules and len(java_modules) >= 2:
+                services = java_modules
+        elif self._should_use_python_modules(path, services):
             python_modules = self._identify_python_module_services(path)
             if python_modules:
                 services = python_modules
@@ -146,6 +150,138 @@ class DependencyAnalyzer:
             })
         
         return services
+
+    def _has_maven_or_gradle(self, repository_root: Path) -> bool:
+        return (
+            (repository_root / "pom.xml").is_file()
+            or (repository_root / "build.gradle").is_file()
+            or (repository_root / "build.gradle.kts").is_file()
+            or (repository_root / "settings.gradle.kts").is_file()
+        )
+
+    def _find_java_source_roots(self, repository_root: Path) -> List[Path]:
+        """Production Java sources only (not src/test/java)."""
+        p = repository_root / "src" / "main" / "java"
+        return [p] if p.is_dir() else []
+
+    def _java_cluster_subdirs(self, java_root: Path, max_clusters: int = 64) -> List[Path]:
+        """
+        Descend past single-package chains (org/com/...) until a directory has multiple
+        subpackages that each contain .java files — typical Maven/Gradle layout.
+        """
+        cur = java_root
+        for _ in range(24):
+            children = [
+                c
+                for c in cur.iterdir()
+                if c.is_dir() and not c.name.startswith(".")
+            ]
+            has_java_here = any(cur.glob("*.java"))
+            if has_java_here:
+                break
+            if len(children) == 1:
+                cur = children[0]
+                continue
+            if len(children) >= 2:
+                with_java = [c for c in children if any(c.rglob("*.java"))]
+                if len(with_java) >= 2:
+                    return sorted(with_java, key=lambda p: p.name.lower())[:max_clusters]
+                if len(with_java) == 1:
+                    cur = with_java[0]
+                    continue
+                if len(children) == 1:
+                    cur = children[0]
+                    continue
+            break
+
+        children = [c for c in cur.iterdir() if c.is_dir() and not c.name.startswith(".")]
+        with_java = [c for c in children if any(c.rglob("*.java"))]
+        if len(with_java) >= 2:
+            return sorted(with_java, key=lambda p: p.name.lower())[:max_clusters]
+        if any(java_root.rglob("*.java")):
+            return [java_root]
+        return []
+
+    def _classify_java_cluster(self, cluster_dir: Path, repository_root: Path) -> str:
+        rel = str(cluster_dir.resolve().relative_to(repository_root.resolve())).lower()
+        parts = rel.replace("\\", "/").split("/")
+        if any(p in {"tests", "test"} for p in parts):
+            return "test"
+        if any(p in {"examples", "example"} for p in parts):
+            return "example"
+        if any(p in {"docs", "doc"} for p in parts):
+            return "documentation"
+        if "controller" in rel or "rest" in rel or "web" in rel:
+            return "entrypoint"
+        return "core_library"
+
+    def _detect_java_entry_points(self, cluster_dir: Path, repository_root: Path) -> List[Dict[str, Any]]:
+        entry_points: List[Dict[str, Any]] = []
+        seen: Set[str] = set()
+        for fp in cluster_dir.rglob("*.java"):
+            if not fp.is_file():
+                continue
+            try:
+                text = fp.read_text(encoding="utf-8", errors="ignore")[:24_000]
+            except Exception:
+                continue
+            if re.search(r"public\s+static\s+void\s+main\s*\(", text):
+                rel = str(fp.resolve().relative_to(repository_root.resolve()))
+                key = f"java_main:{rel}"
+                if key not in seen:
+                    entry_points.append({"type": "java_main", "file": rel})
+                    seen.add(key)
+        return entry_points
+
+    def _identify_java_package_services(self, repository_root: Path) -> List[Dict[str, Any]]:
+        services: List[Dict[str, Any]] = []
+        for java_root in self._find_java_source_roots(repository_root):
+            clusters = self._java_cluster_subdirs(java_root)
+            for cluster_dir in clusters:
+                if not any(cluster_dir.rglob("*.java")):
+                    continue
+                try:
+                    rel = cluster_dir.relative_to(java_root)
+                except ValueError:
+                    continue
+                module_name = ".".join(rel.parts) if rel.parts else java_root.name
+                name = rel.parts[-1] if rel.parts else module_name
+                entry_points = self._detect_java_entry_points(cluster_dir, repository_root)
+                services.append(
+                    {
+                        "id": self._build_service_id(module_name.replace(".", "_"), cluster_dir),
+                        "name": name,
+                        "module_name": module_name,
+                        "path": str(cluster_dir),
+                        "language": "java",
+                        "classification": self._classify_java_cluster(cluster_dir, repository_root),
+                        "entry_points": entry_points,
+                        "entry_point_count": len(entry_points),
+                    }
+                )
+        return services
+
+    def _should_use_java_package_modules(
+        self,
+        repository_root: Path,
+        services: List[Dict[str, Any]],
+    ) -> bool:
+        if not self._has_maven_or_gradle(repository_root):
+            return False
+        roots = self._find_java_source_roots(repository_root)
+        if not roots:
+            return False
+        clusters = self._java_cluster_subdirs(roots[0])
+        if len(clusters) < 2:
+            return False
+        java_count = sum(1 for _ in (repository_root / "src" / "main" / "java").rglob("*.java")) if (repository_root / "src" / "main" / "java").is_dir() else 0
+        if java_count < 4:
+            return False
+        # Prefer packages when current detection is coarse (repo root, src/, main/, or few clusters)
+        coarse = len(services) <= 3
+        names = {str(s.get("name") or "").lower() for s in services}
+        looks_maven_layout = bool(names & {"src", "main", "java"}) or len(services) <= 2
+        return coarse or looks_maven_layout
 
     def _should_use_python_modules(
         self,

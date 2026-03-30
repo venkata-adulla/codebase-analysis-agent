@@ -25,8 +25,18 @@ from services.service_persistence import persist_services_and_docs
 
 logger = logging.getLogger(__name__)
 
-# Must match the length of the workflow list in ``run_analysis_task``.
-WORKFLOW_AGENT_COUNT = 7
+# Single source of truth for orchestrator order (must match ``run_analysis_task``).
+# Documentation runs before tech debt so a tech-debt failure does not skip generated docs/services.
+WORKFLOW_SEQUENCE: List[str] = [
+    "planning_agent",
+    "code_browser_agent",
+    "dependency_mapper_agent",
+    "documentation_agent",
+    "tech_debt_agent",
+    "impact_agent",
+    "human_review_agent",
+]
+WORKFLOW_AGENT_COUNT = len(WORKFLOW_SEQUENCE)
 
 
 def _agent_label(agent_name: str) -> str:
@@ -133,11 +143,7 @@ def run_analysis_task(repository_id: str, repo_path: str):
             "message": "Preparing workflow",
         }
         
-        # Execute workflow
-        workflow = ["planning_agent", "code_browser_agent", "dependency_mapper_agent", 
-                    "tech_debt_agent", "documentation_agent", "impact_agent", "human_review_agent"]
-        
-        result = orchestrator.execute_workflow(run_id, workflow)
+        result = orchestrator.execute_workflow(run_id, list(WORKFLOW_SEQUENCE))
 
         active_analyses[repository_id] = {
             "status": result["status"],
@@ -286,7 +292,10 @@ async def get_analysis_status(
                 completed: List[Any] = run.get("completed_agents") or []
                 completed_count = len(completed)
                 analysis["progress"] = min(1.0, completed_count / WORKFLOW_AGENT_COUNT)
+                analysis["completed_agents"] = [str(x) for x in completed if x]
+                analysis["workflow"] = list(WORKFLOW_SEQUENCE)
                 current_agent = run.get("current_agent")
+                analysis["current_agent"] = str(current_agent) if current_agent else None
                 if current_agent:
                     analysis["status"] = "running"
                     analysis["message"] = (
@@ -313,18 +322,28 @@ async def get_analysis_status(
             "status": analysis.get("status", "unknown"),
             "progress": analysis.get("progress", 0.0),
             "message": analysis.get("message"),
+            "workflow": analysis.get("workflow") or list(WORKFLOW_SEQUENCE),
+            "completed_agents": analysis.get("completed_agents") or [],
+            "current_agent": analysis.get("current_agent"),
+            "agent_total": WORKFLOW_AGENT_COUNT,
         }
 
     db = SessionLocal()
     try:
         repo = db.query(Repository).filter(Repository.id == repository_id).first()
         if repo:
+            st = (repo.status or "unknown").lower()
+            done = st in ("completed", "complete", "success", "done")
             return {
                 "repository_id": repository_id,
                 "repository_name": repo.name,
                 "status": repo.status or "unknown",
                 "progress": float(repo.progress) if repo.progress is not None else 0.0,
                 "message": repo.message,
+                "workflow": list(WORKFLOW_SEQUENCE),
+                "completed_agents": list(WORKFLOW_SEQUENCE) if done else [],
+                "current_agent": None,
+                "agent_total": WORKFLOW_AGENT_COUNT,
             }
     finally:
         db.close()

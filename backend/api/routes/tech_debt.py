@@ -8,6 +8,7 @@ from services.tech_debt_analyzer import TechDebtAnalyzer
 from services.tech_debt_persistence import save_tech_debt_report
 from services.code_parser import CodeParserService
 from services.graph_service import GraphService
+from services.tech_debt_advisor import build_score_explanation, build_suggested_fix
 from models.repository import Repository
 from models.service import Service as ServiceRow
 from models.tech_debt import TechDebtItem, TechDebtReport, DebtRemediationPlan, DebtMetricsHistory
@@ -58,6 +59,29 @@ def _load_code_elements(repository_path: str) -> List[Dict[str, Any]]:
         extensions=[".py", ".js", ".jsx", ".ts", ".tsx", ".java"],
     )
     return [element.to_dict() for elements in parsed.values() for element in elements]
+
+
+def _serialize_debt_item(item: TechDebtItem) -> Dict[str, Any]:
+    payload = {
+        "id": item.id,
+        "repository_id": item.repository_id,
+        "service_id": item.service_id,
+        "category": item.category,
+        "severity": item.severity,
+        "priority": item.priority,
+        "title": item.title,
+        "description": item.description,
+        "file_path": item.file_path,
+        "line_start": item.line_start,
+        "line_end": item.line_end,
+        "impact_score": item.impact_score,
+        "effort_estimate": item.effort_estimate,
+        "status": item.status,
+        "code_snippet": item.code_snippet,
+        "meta_data": item.meta_data or {},
+    }
+    payload["suggested_fix"] = build_suggested_fix(payload)
+    return payload
 
 
 @router.post("/analyze")
@@ -167,25 +191,10 @@ async def get_debt_report(
             "test_coverage": report.test_coverage_score,
         },
         "assessment_coverage": (report.report_data or {}).get("assessment_coverage") or {},
+        "score_explanation": (report.report_data or {}).get("score_explanation") or build_score_explanation(),
         "items_by_category": report.items_by_category,
         "items_by_severity": report.items_by_severity,
-        "debt_items": [
-            {
-                "id": item.id,
-                "category": item.category,
-                "severity": item.severity,
-                "priority": item.priority,
-                "title": item.title,
-                "description": item.description,
-                "file_path": item.file_path,
-                "line_start": item.line_start,
-                "line_end": item.line_end,
-                "impact_score": item.impact_score,
-                "effort_estimate": item.effort_estimate,
-                "status": item.status,
-            }
-            for item in items
-        ],
+        "debt_items": [_serialize_debt_item(item) for item in items],
         "created_at": report.created_at.isoformat() if report.created_at else None,
     }
 
@@ -217,25 +226,7 @@ async def list_debt_items(
     items = query.all()
     
     return {
-        "items": [
-            {
-                "id": item.id,
-                "repository_id": item.repository_id,
-                "service_id": item.service_id,
-                "category": item.category,
-                "severity": item.severity,
-                "priority": item.priority,
-                "title": item.title,
-                "description": item.description,
-                "file_path": item.file_path,
-                "line_start": item.line_start,
-                "line_end": item.line_end,
-                "impact_score": item.impact_score,
-                "effort_estimate": item.effort_estimate,
-                "status": item.status,
-            }
-            for item in items
-        ],
+        "items": [_serialize_debt_item(item) for item in items],
         "total": len(items),
     }
 
@@ -271,6 +262,7 @@ async def get_debt_metrics(
             "test_coverage": report.test_coverage_score,
         },
         "assessment_coverage": (report.report_data or {}).get("assessment_coverage") or {},
+        "score_explanation": (report.report_data or {}).get("score_explanation") or build_score_explanation(),
         "items_by_category": report.items_by_category,
         "items_by_severity": report.items_by_severity,
     }

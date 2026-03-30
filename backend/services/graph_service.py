@@ -3,6 +3,7 @@ import logging
 from collections import Counter, defaultdict, deque
 from typing import List, Dict, Any, Optional, Set, Tuple
 from core.database import get_neo4j_driver
+from services.cache_service import CacheService
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class GraphService:
     
     def __init__(self):
         self.driver = get_neo4j_driver()
+        self.cache = CacheService()
     
     def create_service_node(
         self,
@@ -348,6 +350,11 @@ class GraphService:
         repository_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Get the full dependency graph."""
+        if repository_id:
+            cached = self.cache.get_dependency_graph(repository_id)
+            if isinstance(cached, dict):
+                return cached
+
         with self.driver.session() as session:
             if repository_id:
                 query = """
@@ -396,12 +403,15 @@ class GraphService:
             indirect_edges = self._compute_indirect_edges(nodes, edges)
             architecture_summary = self._build_architecture_summary(nodes, edges, indirect_edges)
             
-            return {
+            payload = {
                 "nodes": nodes,
                 "edges": edges,
                 "indirect_edges": indirect_edges,
                 "architecture_summary": architecture_summary,
             }
+            if repository_id:
+                self.cache.set_dependency_graph(repository_id, payload)
+            return payload
     
     def find_impacted_services(
         self,
@@ -432,4 +442,5 @@ class GraphService:
             """
             result = session.run(query, repository_id=repository_id)
             result.consume()
+            self.cache.delete(f"dependency_graph:{repository_id}")
             logger.info(f"Cleared graph for repository: {repository_id}")
