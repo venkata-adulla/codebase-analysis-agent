@@ -194,9 +194,9 @@ export default function ServicesPage() {
                       Documentation summary
                     </p>
                     {summaryText ? (
-                      <p className="max-h-52 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                      <MarkdownBody compact className="max-h-52 text-sm leading-relaxed">
                         {summaryText}
-                      </p>
+                      </MarkdownBody>
                     ) : descriptionText ? (
                       <>
                         <p className="mb-2 text-xs text-muted-foreground">
