@@ -267,6 +267,11 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
                     {String(assessmentCoverage[item.rawName].note)}
                   </p>
                 ) : null}
+                {item.score === 0 && assessmentCoverage[item.rawName]?.supported !== false ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    No issues were detected for this category in the current analysis window.
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>

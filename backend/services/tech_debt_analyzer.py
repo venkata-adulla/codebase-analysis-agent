@@ -10,6 +10,11 @@ from services.tech_debt_advisor import build_score_explanation
 
 logger = logging.getLogger(__name__)
 
+CATEGORY_ALIASES = {
+    "test": "test_coverage",
+    "tests": "test_coverage",
+}
+
 
 class TechDebtAnalyzer:
     """Main tech debt analysis engine that orchestrates all debt analysis types."""
@@ -143,7 +148,7 @@ class TechDebtAnalyzer:
             category_scores.get("architecture", 0) * 0.25 +
             category_scores.get("dependency", 0) * 0.20 +
             category_scores.get("documentation", 0) * 0.15 +
-            category_scores.get("test", 0) * 0.10
+            category_scores.get("test_coverage", 0) * 0.10
         )
         
         return min(total_score, 100.0)
@@ -158,10 +163,23 @@ class TechDebtAnalyzer:
         }
         
         category_scores = {}
-        categories = ["code_quality", "architecture", "dependency", "documentation", "test", "performance", "security"]
-        
+        categories = [
+            "code_quality",
+            "architecture",
+            "dependency",
+            "documentation",
+            "test_coverage",
+            "performance",
+            "security",
+        ]
+
         for category in categories:
-            category_items = [item for item in debt_items if item.get("category") == category]
+            category_items = [
+                item
+                for item in debt_items
+                if CATEGORY_ALIASES.get(str(item.get("category") or "").strip(), str(item.get("category") or "").strip())
+                == category
+            ]
             if not category_items:
                 category_scores[category] = 0.0
                 continue
@@ -216,7 +234,8 @@ class TechDebtAnalyzer:
         """Group debt items by category."""
         grouped = {}
         for item in debt_items:
-            category = item.get("category", "unknown")
+            raw = str(item.get("category", "unknown")).strip()
+            category = CATEGORY_ALIASES.get(raw, raw)
             grouped[category] = grouped.get(category, 0) + 1
         return grouped
     
