@@ -102,7 +102,7 @@ async def analyze_tech_debt(
             "architecture": 0.0,
             "dependency": 0.0,
             "documentation": 0.0,
-            "test": 0.0,
+            "test_coverage": 0.0,
         },
         "items_by_category": {},
         "items_by_severity": {},

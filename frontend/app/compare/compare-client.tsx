@@ -9,6 +9,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { ExportMenu } from '@/components/export/ExportMenu'
+import { MetricExplainer } from '@/components/layout/metric-explainer'
 import type { CsvSection } from '@/lib/export/csv-export'
 
 type RepoRow = { id: string; name?: string; status?: string }
@@ -291,6 +292,16 @@ export function CompareClient() {
           </section>
 
           <section className="grid gap-3 md:grid-cols-3">
+            <div className="md:col-span-3">
+              <MetricExplainer
+                title="How to read comparison scores"
+                points={[
+                  'Normalized scores are on a 0–100 scale; higher is better for maintainability and scalability.',
+                  'Simplicity is inverse complexity, so higher simplicity means lower structural complexity.',
+                  'Raw risk/complexity index is not normalized; higher values indicate greater complexity risk.',
+                ]}
+              />
+            </div>
             {colIds.map((id) => {
               const sc = result.scores[id] || {}
               const meta = repoColumns.find((r) => r.id === id)

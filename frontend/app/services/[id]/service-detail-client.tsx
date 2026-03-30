@@ -134,7 +134,7 @@ export function ServiceDetailClient({ serviceId }: { serviceId: string }) {
                 AI summary
               </p>
               {summaryText ? (
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{summaryText}</p>
+                <MarkdownBody className="text-sm leading-relaxed">{summaryText}</MarkdownBody>
               ) : descriptionText ? (
                 <p className="text-sm text-muted-foreground">
                   No short AI summary stored. See the full documentation markdown below.

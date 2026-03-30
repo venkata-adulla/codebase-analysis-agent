@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ArchitectureDiagram } from '@/components/architecture/ArchitectureDiagram'
 import { ExportMenu } from '@/components/export/ExportMenu'
+import { MarkdownBody } from '@/components/markdown-body'
 import { cn } from '@/lib/utils'
 
 type StackItem = { name: string; category: string; confidence: number; source: string }
@@ -72,6 +73,24 @@ function ConfidenceBar({ value }: { value: number }) {
       />
     </div>
   )
+}
+
+function confidenceBand(value: number): 'High confidence' | 'Medium confidence' | 'Low confidence' {
+  if (value >= 0.8) return 'High confidence'
+  if (value >= 0.6) return 'Medium confidence'
+  return 'Low confidence'
+}
+
+function explainSource(raw: string): string {
+  const source = (raw || '').toLowerCase()
+  if (source.startsWith('pom.xml')) return 'Found in Java dependency/build file (pom.xml)'
+  if (source.startsWith('package.json:dependencies')) return 'Found in runtime package dependencies'
+  if (source.startsWith('package.json:devdependencies')) return 'Found in development-only package dependencies'
+  if (source.startsWith('requirements.txt')) return 'Found in Python requirements file'
+  if (source.startsWith('pyproject.toml')) return 'Found in Python project manifest'
+  if (source.includes('docker-compose')) return 'Found in container/service configuration'
+  if (source.includes('folder_structure')) return 'Inferred from repository folder layout (weaker evidence)'
+  return `Detected from ${raw}`
 }
 
 function SeverityBadge({ s }: { s: string }) {
@@ -226,9 +245,45 @@ export function ArchitectureClient() {
 
           <section className="rounded-xl border border-border bg-card/50 p-4 shadow-sm">
             <h2 className="text-sm font-semibold text-foreground">Executive summary</h2>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              {data.narrative?.architecture_summary}
-            </p>
+            <MarkdownBody className="mt-2 text-sm leading-relaxed">
+              {String(data.narrative?.architecture_summary || '')}
+            </MarkdownBody>
+            <div className="mt-3 rounded-lg border border-border/60 bg-background/40 p-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                How to read this page
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                <li>Percentages in Technology Stack are confidence levels, not usage share.</li>
+                <li>Higher confidence means stronger evidence from repo files/manifests.</li>
+                <li>“No strong signals” means the analyzer did not find enough static evidence.</li>
+              </ul>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Coding style
+                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {String(data.narrative?.coding_style_summary || 'No coding-style narrative available.')}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Risk highlights
+                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {String(data.narrative?.risks_summary || 'No risk narrative available.')}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Practices
+                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {String(data.narrative?.best_practices_summary || 'No best-practices narrative available.')}
+                </p>
+              </div>
+            </div>
           </section>
 
           <section>
@@ -249,10 +304,15 @@ export function ArchitectureClient() {
 
           <div className="grid gap-4 lg:grid-cols-3">
             <section className="rounded-xl border border-border bg-card/50 p-4 shadow-sm">
-              <h2 className="text-sm font-semibold">Technology stack</h2>
+              <h2 className="text-sm font-semibold">Detected technologies (confidence)</h2>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Detected from package manifests, docker-compose, and layout heuristics.
+                Confidence indicates how strongly repository evidence suggests a technology is present.
               </p>
+              <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                <span className="rounded-full border border-border/70 px-2 py-0.5">High confidence: 80–100%</span>
+                <span className="rounded-full border border-border/70 px-2 py-0.5">Medium: 60–79%</span>
+                <span className="rounded-full border border-border/70 px-2 py-0.5">Low: &lt;60%</span>
+              </div>
               <div className="mt-4 space-y-4">
                 {(['frontend', 'backend', 'database', 'other'] as const).map((cat) => {
                   const rows = data.technology_stack?.by_category?.[cat] || []
@@ -272,12 +332,15 @@ export function ArchitectureClient() {
                           <li key={`${cat}-${item.name}-${item.source}`} className="space-y-1">
                             <div className="flex items-center justify-between gap-2 text-xs">
                               <span className="font-medium text-foreground">{item.name}</span>
-                              <span className="shrink-0 text-[10px] text-muted-foreground">
-                                {Math.round(item.confidence * 100)}%
-                              </span>
+                              <div className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+                                <span>{Math.round(item.confidence * 100)}%</span>
+                                <span className="rounded-full border border-border/70 px-1.5 py-0.5">
+                                  {confidenceBand(item.confidence)}
+                                </span>
+                              </div>
                             </div>
                             <ConfidenceBar value={item.confidence} />
-                            <p className="text-[10px] text-muted-foreground/80">{item.source}</p>
+                            <p className="text-[10px] text-muted-foreground/80">{explainSource(item.source)}</p>
                           </li>
                         ))}
                       </ul>

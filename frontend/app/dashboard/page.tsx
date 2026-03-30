@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Activity, ArrowRight, FolderGit2, GitBranch } from 'lucide-react'
 import api from '@/lib/api'
 import { PageHeader } from '@/components/layout/page-header'
+import { MetricExplainer } from '@/components/layout/metric-explainer'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
@@ -155,6 +156,14 @@ export default function DashboardPage() {
           </Link>
         </CardHeader>
         <CardContent>
+          <MetricExplainer
+            className="mb-4"
+            title="How to read dashboard metrics"
+            points={[
+              'Progress % reflects pipeline completion status for that repository analysis run.',
+              'Status badges indicate current run state (queued, running, completed, failed).',
+            ]}
+          />
           {isLoading ? (
             <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
           ) : repositories && repositories.length > 0 ? (
