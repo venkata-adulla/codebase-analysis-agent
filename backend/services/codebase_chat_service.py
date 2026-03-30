@@ -204,13 +204,29 @@ def _create_chat_completion(client: OpenAI, **kwargs):
     model = (settings.openai_model or "").strip()
     if not model:
         raise RuntimeError("OPENAI_MODEL is not configured.")
-    try:
-        return client.chat.completions.create(model=model, **kwargs)
-    except Exception as exc:
-        logger.warning("Chat completion failed with model %s: %s", model, exc)
-        raise RuntimeError(
-            "Chat model request failed. Check OPENAI_MODEL and API access."
-        ) from exc
+
+    fallbacks = [m.strip() for m in str(settings.openai_model_fallbacks or "").split(",") if m.strip()]
+    model_candidates: List[str] = []
+    for m in [model, *fallbacks]:
+        if m and m not in model_candidates:
+            model_candidates.append(m)
+
+    last_exc: Optional[Exception] = None
+    for candidate in model_candidates:
+        try:
+            if candidate != model:
+                logger.info("Chat model fallback attempt: %s (primary=%s)", candidate, model)
+            return client.chat.completions.create(model=candidate, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Chat completion failed with model %s: %s", candidate, exc)
+            continue
+
+    attempted = ", ".join(model_candidates)
+    raise RuntimeError(
+        f"Chat model request failed. Attempted models: {attempted}. "
+        "Check OPENAI_MODEL, OPENAI_MODEL_FALLBACKS, and API access."
+    ) from last_exc
 
 
 def _retrieve_numpy(

@@ -6,9 +6,15 @@ from services.code_quality_analyzer import CodeQualityAnalyzer
 from services.architecture_analyzer import ArchitectureAnalyzer
 from services.dependency_vulnerability_scanner import DependencyVulnerabilityScanner
 from services.documentation_debt_analyzer import DocumentationDebtAnalyzer
+from services.test_coverage_analyzer import TestCoverageAnalyzer
 from services.tech_debt_advisor import build_score_explanation
 
 logger = logging.getLogger(__name__)
+
+CATEGORY_ALIASES = {
+    "test": "test_coverage",
+    "tests": "test_coverage",
+}
 
 
 class TechDebtAnalyzer:
@@ -19,6 +25,7 @@ class TechDebtAnalyzer:
         self.architecture_analyzer = ArchitectureAnalyzer()
         self.dependency_scanner = DependencyVulnerabilityScanner()
         self.documentation_analyzer = DocumentationDebtAnalyzer()
+        self.test_coverage_analyzer = TestCoverageAnalyzer()
     
     def analyze_repository(
         self,
@@ -58,9 +65,9 @@ class TechDebtAnalyzer:
                 "note": "Documentation analysis is heuristic and currently checks repository docs presence plus missing Python docstrings.",
             },
             "test_coverage": {
-                "supported": False,
-                "confidence": "low",
-                "note": "Automated test-coverage analysis is not implemented yet; a zero score here does not imply good coverage.",
+                "supported": True,
+                "confidence": "medium",
+                "note": "Test coverage uses a heuristic estimate from discovered test files and optional coverage report artifacts.",
             },
         }
         
@@ -102,10 +109,18 @@ class TechDebtAnalyzer:
             logger.info(f"Found {len(documentation_items)} documentation issues")
         except Exception as e:
             logger.error(f"Error in documentation analysis: {e}")
+
+        # Run heuristic test-coverage analysis
+        try:
+            test_coverage_items = self.test_coverage_analyzer.analyze(repository_path)
+            all_debt_items.extend(test_coverage_items)
+            logger.info(f"Found {len(test_coverage_items)} test coverage findings")
+        except Exception as e:
+            logger.error(f"Error in test coverage analysis: {e}")
         
         # Calculate scores and prioritize
-        debt_scores = self._calculate_category_scores(all_debt_items)
-        total_debt_score = self.calculate_debt_score(all_debt_items)
+        debt_scores = self._calculate_category_scores(all_debt_items, assessment_coverage)
+        total_debt_score = self.calculate_debt_score(all_debt_items, debt_scores=debt_scores)
         prioritized_items = self.prioritize_debt(all_debt_items)
         
         # Calculate metrics
@@ -129,13 +144,18 @@ class TechDebtAnalyzer:
             "analyzed_at": datetime.utcnow().isoformat(),
         }
     
-    def calculate_debt_score(self, debt_items: List[Dict[str, Any]]) -> float:
+    def calculate_debt_score(
+        self,
+        debt_items: List[Dict[str, Any]],
+        *,
+        debt_scores: Optional[Dict[str, float]] = None,
+    ) -> float:
         """Calculate overall debt score (0-100, higher = more debt)."""
-        if not debt_items:
+        if not debt_items and not debt_scores:
             return 0.0
         
         # Calculate category scores
-        category_scores = self._calculate_category_scores(debt_items)
+        category_scores = debt_scores or self._calculate_category_scores(debt_items)
         
         # Weighted average
         total_score = (
@@ -143,12 +163,16 @@ class TechDebtAnalyzer:
             category_scores.get("architecture", 0) * 0.25 +
             category_scores.get("dependency", 0) * 0.20 +
             category_scores.get("documentation", 0) * 0.15 +
-            category_scores.get("test", 0) * 0.10
+            category_scores.get("test_coverage", 0) * 0.10
         )
         
         return min(total_score, 100.0)
     
-    def _calculate_category_scores(self, debt_items: List[Dict[str, Any]]) -> Dict[str, float]:
+    def _calculate_category_scores(
+        self,
+        debt_items: List[Dict[str, Any]],
+        assessment_coverage: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, float]:
         """Calculate debt scores by category."""
         category_weights = {
             "low": 1.0,
@@ -158,12 +182,37 @@ class TechDebtAnalyzer:
         }
         
         category_scores = {}
-        categories = ["code_quality", "architecture", "dependency", "documentation", "test", "performance", "security"]
-        
+        categories = [
+            "code_quality",
+            "architecture",
+            "dependency",
+            "documentation",
+            "test_coverage",
+            "performance",
+            "security",
+        ]
+
         for category in categories:
-            category_items = [item for item in debt_items if item.get("category") == category]
+            category_items = [
+                item
+                for item in debt_items
+                if CATEGORY_ALIASES.get(str(item.get("category") or "").strip(), str(item.get("category") or "").strip())
+                == category
+            ]
             if not category_items:
-                category_scores[category] = 0.0
+                cov = (assessment_coverage or {}).get(category) or {}
+                if cov.get("supported") is False:
+                    category_scores[category] = 0.0
+                else:
+                    confidence = str(cov.get("confidence") or "").lower()
+                    if confidence == "high":
+                        category_scores[category] = 6.0
+                    elif confidence == "medium":
+                        category_scores[category] = 4.0
+                    elif confidence == "low":
+                        category_scores[category] = 2.0
+                    else:
+                        category_scores[category] = 0.0
                 continue
             
             # Calculate weighted score
@@ -216,7 +265,8 @@ class TechDebtAnalyzer:
         """Group debt items by category."""
         grouped = {}
         for item in debt_items:
-            category = item.get("category", "unknown")
+            raw = str(item.get("category", "unknown")).strip()
+            category = CATEGORY_ALIASES.get(raw, raw)
             grouped[category] = grouped.get(category, 0) + 1
         return grouped
     

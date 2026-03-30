@@ -761,11 +761,119 @@ class DependencyAnalyzer:
                         "file": file_path,
                         "language": lang,
                     })
+
+            # Spring MVC endpoint mappings (inbound API surface)
+            spring_mappings = self._detect_spring_mvc_endpoints(content, file_path)
+            api_calls.extend(spring_mappings)
         
         except Exception as e:
             logger.error(f"Error detecting API calls in {file_path}: {e}")
         
         return api_calls
+
+    def _detect_spring_mvc_endpoints(self, content: str, file_path: str) -> List[Dict[str, Any]]:
+        """Detect Spring MVC controller endpoints from annotations."""
+        endpoints: List[Dict[str, Any]] = []
+
+        # Keep this light-weight (regex only), but good enough for common @*Mapping annotations.
+        class_level_prefixes: List[str] = []
+        class_mapping_pattern = re.compile(
+            r"@RequestMapping\s*\(\s*(?:value\s*=\s*)?[\"']([^\"']*)[\"'][^)]*\)\s*(?:public\s+)?(?:abstract\s+)?class\s+\w+",
+            re.MULTILINE,
+        )
+        for match in class_mapping_pattern.finditer(content):
+            prefix = (match.group(1) or "").strip()
+            if prefix and prefix not in class_level_prefixes:
+                class_level_prefixes.append(prefix)
+        if not class_level_prefixes:
+            class_level_prefixes = [""]
+
+        mapping_patterns = [
+            (re.compile(r"@GetMapping\s*\(\s*(?:value\s*=\s*)?[\"']([^\"']*)[\"']"), "GET"),
+            (re.compile(r"@PostMapping\s*\(\s*(?:value\s*=\s*)?[\"']([^\"']*)[\"']"), "POST"),
+            (re.compile(r"@PutMapping\s*\(\s*(?:value\s*=\s*)?[\"']([^\"']*)[\"']"), "PUT"),
+            (re.compile(r"@DeleteMapping\s*\(\s*(?:value\s*=\s*)?[\"']([^\"']*)[\"']"), "DELETE"),
+            (re.compile(r"@PatchMapping\s*\(\s*(?:value\s*=\s*)?[\"']([^\"']*)[\"']"), "PATCH"),
+        ]
+
+        # @RequestMapping(method=..., value="...") variants
+        request_mapping_pattern = re.compile(
+            r"@RequestMapping\s*\(([^)]*)\)",
+            re.MULTILINE | re.DOTALL,
+        )
+        request_method_pattern = re.compile(r"RequestMethod\.(GET|POST|PUT|DELETE|PATCH)")
+        request_value_pattern = re.compile(r"(?:value|path)\s*=\s*[\"']([^\"']*)[\"']")
+
+        seen: Set[Tuple[str, str]] = set()
+        for pattern, method in mapping_patterns:
+            for match in pattern.finditer(content):
+                path = (match.group(1) or "").strip()
+                full_paths = self._join_spring_paths(class_level_prefixes, path)
+                for full_path in full_paths:
+                    key = (method, full_path)
+                    if key in seen:
+                        continue
+                    endpoints.append(
+                        {
+                            "endpoint": full_path,
+                            "method": method,
+                            "file": file_path,
+                            "language": "java-spring",
+                            "type": "inbound_endpoint",
+                        }
+                    )
+                    seen.add(key)
+
+        for match in request_mapping_pattern.finditer(content):
+            annotation_body = match.group(1) or ""
+            methods = request_method_pattern.findall(annotation_body)
+            values = request_value_pattern.findall(annotation_body)
+            if not values:
+                continue
+            resolved_methods = methods or ["GET"]
+            for method in resolved_methods:
+                for value in values:
+                    for full_path in self._join_spring_paths(class_level_prefixes, value.strip()):
+                        key = (method, full_path)
+                        if key in seen:
+                            continue
+                        endpoints.append(
+                            {
+                                "endpoint": full_path,
+                                "method": method,
+                                "file": file_path,
+                                "language": "java-spring",
+                                "type": "inbound_endpoint",
+                            }
+                        )
+                        seen.add(key)
+
+        return endpoints
+
+    def _join_spring_paths(self, prefixes: List[str], path: str) -> List[str]:
+        def normalize(segment: str) -> str:
+            seg = (segment or "").strip()
+            if not seg:
+                return ""
+            if not seg.startswith("/"):
+                seg = f"/{seg}"
+            return seg.rstrip("/") or "/"
+
+        path_norm = normalize(path)
+        if not prefixes:
+            return [path_norm or "/"]
+
+        out: List[str] = []
+        for prefix in prefixes:
+            prefix_norm = normalize(prefix)
+            if not prefix_norm or prefix_norm == "/":
+                candidate = path_norm or "/"
+            elif not path_norm or path_norm == "/":
+                candidate = prefix_norm
+            else:
+                candidate = f"{prefix_norm}{path_norm}"
+            out.append(candidate)
+        return list(dict.fromkeys(out))
     
     def _detect_database_connections(self, file_path: str) -> List[Dict[str, Any]]:
         """Detect database connections in a file."""
