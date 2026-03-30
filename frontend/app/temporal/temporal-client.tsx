@@ -456,12 +456,12 @@ export function TemporalClient() {
             {/* PR insights */}
             <section className="rounded-xl border border-border bg-card/50 p-4">
               <h2 className="text-sm font-semibold">PR &amp; commit insights</h2>
-              <div className="mt-2 space-y-3 text-xs">
+              <div className="mt-2 max-h-[320px] space-y-3 overflow-y-auto text-xs">
                 <div>
                   <p className="font-medium text-foreground">Large PRs</p>
                   <ul className="mt-1 space-y-1 text-muted-foreground">
                     {(data.pr_insights?.large_prs || []).map((p) => (
-                      <li key={p.number}>
+                      <li key={p.number} className="break-words">
                         #{p.number} {p.title.slice(0, 80)}
                         {p.title.length > 80 ? '…' : ''} ({p.changed_files} files)
                       </li>
@@ -472,7 +472,7 @@ export function TemporalClient() {
                   <p className="font-medium text-foreground">Hotfix-style titles</p>
                   <ul className="mt-1 space-y-1 text-muted-foreground">
                     {(data.pr_insights?.hotfix_patterns || []).map((p) => (
-                      <li key={p.number}>#{p.number} {p.title}</li>
+                      <li key={p.number} className="break-words">#{p.number} {p.title}</li>
                     ))}
                   </ul>
                 </div>
@@ -480,7 +480,7 @@ export function TemporalClient() {
                   <p className="font-medium text-foreground">Repeat churn files</p>
                   <ul className="mt-1 space-y-1 text-muted-foreground">
                     {(data.pr_insights?.repeat_files || []).map((f) => (
-                      <li key={f.path}>
+                      <li key={f.path} className="break-all">
                         {f.path} ({f.commits} commits)
                       </li>
                     ))}

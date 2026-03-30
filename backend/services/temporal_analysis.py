@@ -253,6 +253,93 @@ def _impact_evolution(
     return rows[:40]
 
 
+def _structured_insights(
+    services: List[Dict[str, Any]],
+    churn_30: Dict[str, int],
+    churn_prev: Dict[str, int],
+    degrees: Dict[str, int],
+    pr_block: Dict[str, Any],
+) -> List[Dict[str, str]]:
+    """Build compact, UI-friendly insight cards from temporal signals."""
+    names = _service_name_by_id(services)
+    items: List[Dict[str, str]] = []
+
+    # 1) Structural risk: highly connected modules
+    high_degree = sorted(
+        ((sid, deg) for sid, deg in degrees.items() if deg >= 6),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    if high_degree:
+        sid, deg = high_degree[0]
+        items.append(
+            {
+                "severity": "medium",
+                "title": "High-connectivity module",
+                "detail": f"{names.get(sid, sid)} has graph degree {deg}; changes here may have broad impact.",
+            }
+        )
+
+    # 2) Churn acceleration
+    growth_candidates: List[Tuple[str, int, int]] = []
+    for sid, now in churn_30.items():
+        prev = churn_prev.get(sid, 0)
+        if now >= 3 and (prev == 0 or now >= int(prev * 1.8)):
+            growth_candidates.append((sid, prev, now))
+    growth_candidates.sort(key=lambda x: x[2], reverse=True)
+    if growth_candidates:
+        sid, prev, now = growth_candidates[0]
+        items.append(
+            {
+                "severity": "high" if now >= 8 else "medium",
+                "title": "Churn spike detected",
+                "detail": f"{names.get(sid, sid)} increased from {prev} to {now} touches in the last 30-day window.",
+            }
+        )
+
+    # 3) PR risk signals
+    large_prs = pr_block.get("large_prs") or []
+    hotfixes = pr_block.get("hotfix_patterns") or []
+    repeat_files = pr_block.get("repeat_files") or []
+    if large_prs:
+        worst = large_prs[0]
+        items.append(
+            {
+                "severity": "medium",
+                "title": "Large PR observed",
+                "detail": f"PR #{worst.get('number')} changed {worst.get('changed_files')} files ({worst.get('lines')} lines).",
+            }
+        )
+    if hotfixes:
+        items.append(
+            {
+                "severity": "high",
+                "title": "Hotfix-style PR activity",
+                "detail": f"{len(hotfixes)} PR(s) matched hotfix/rollback patterns in title or body.",
+            }
+        )
+    if repeat_files:
+        top = repeat_files[0]
+        items.append(
+            {
+                "severity": "low",
+                "title": "Repeat churn hotspot",
+                "detail": f"{top.get('path')} appeared in {top.get('commits')} commits in the selected window.",
+            }
+        )
+
+    if not items:
+        items.append(
+            {
+                "severity": "low",
+                "title": "No strong temporal risk signals",
+                "detail": "Recent churn, PR patterns, and graph connectivity look stable for the selected period.",
+            }
+        )
+
+    return items[:6]
+
+
 def build_heatmap(
     churn: Dict[str, int],
     services: List[Dict[str, Any]],
@@ -354,6 +441,7 @@ def run_temporal_analysis(
         {"path": p, "commits": n} for p, n in file_hits.most_common(15) if n >= 3
     ]
     pr_block["repeat_files"] = repeat_files
+    structured = _structured_insights(services, churn_30, churn_prev, degrees, pr_block)
 
     drift_metrics: Dict[str, Any] = {
         "module_churn_30d": churn_30,
@@ -384,6 +472,6 @@ def run_temporal_analysis(
         "pr_insights": pr_block,
         "comment_insights": comments_block,
         "impact_evolution": impact,
-        "insights": [],
+        "insights": structured,
         "debug": debug,
     }
