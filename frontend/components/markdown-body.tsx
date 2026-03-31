@@ -72,11 +72,22 @@ export function MarkdownBody({
   className,
   compact,
 }: {
-  children: string
+  children?: ReactNode
   className?: string
   compact?: boolean
 }) {
-  if (!children?.trim()) return null
+  const content =
+    typeof children === 'string'
+      ? children
+      : Array.isArray(children)
+        ? children
+            .map((child) => (typeof child === 'string' ? child : child == null ? '' : String(child)))
+            .join('')
+        : children == null
+          ? ''
+          : String(children)
+
+  if (!content.trim()) return null
   return (
     <div
       className={cn(
@@ -86,7 +97,7 @@ export function MarkdownBody({
       )}
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-        {children}
+        {content}
       </ReactMarkdown>
     </div>
   )
