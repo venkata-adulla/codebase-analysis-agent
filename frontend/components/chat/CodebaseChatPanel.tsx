@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm'
 import { MessageCircle, X, Loader2, Trash2, ExternalLink, Sparkles, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ExportMenu } from '@/components/export/ExportMenu'
+import { MetricExplainer } from '@/components/layout/metric-explainer'
 import type { CsvSection } from '@/lib/export/csv-export'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -493,6 +494,13 @@ export function CodebaseChatPanel() {
           </div>
 
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+            <MetricExplainer
+              title="How to read chat confidence"
+              points={[
+                'Confidence % indicates how strongly retrieved repository context supports the answer.',
+                'Higher confidence does not guarantee correctness; verify critical decisions against source code.',
+              ]}
+            />
             {suggestedVisible ? (
               <div className="space-y-2">
                 <p className="text-[11px] font-medium text-muted-foreground">Suggested</p>

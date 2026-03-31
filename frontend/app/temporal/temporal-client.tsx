@@ -8,6 +8,7 @@ import { format, parseISO, startOfDay, startOfMonth, startOfWeek } from 'date-fn
 import { CalendarRange, GitCommit, GitMerge, Loader2, RefreshCw, Sparkles } from 'lucide-react'
 import { PageHeader } from '@/components/layout/page-header'
 import { ExportMenu } from '@/components/export/ExportMenu'
+import { MetricExplainer } from '@/components/layout/metric-explainer'
 import type { CsvSection } from '@/lib/export/csv-export'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -315,6 +316,14 @@ export function TemporalClient() {
               {data.debug.commits_processed ?? '—'}
             </p>
           ) : null}
+          <MetricExplainer
+            title="How to read temporal metrics"
+            points={[
+              'Intensity % is recent churn for a module in the selected window (relative to the busiest module).',
+              'Risk level in impact/churn combines dependency connectivity with recent code touches.',
+              'Drift statements highlight unusual change patterns, not guaranteed defects.',
+            ]}
+          />
 
           <section className="rounded-xl border border-border bg-gradient-to-br from-card/80 to-card/40 p-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -456,12 +465,12 @@ export function TemporalClient() {
             {/* PR insights */}
             <section className="rounded-xl border border-border bg-card/50 p-4">
               <h2 className="text-sm font-semibold">PR &amp; commit insights</h2>
-              <div className="mt-2 space-y-3 text-xs">
+              <div className="mt-2 max-h-[320px] space-y-3 overflow-y-auto text-xs">
                 <div>
                   <p className="font-medium text-foreground">Large PRs</p>
                   <ul className="mt-1 space-y-1 text-muted-foreground">
                     {(data.pr_insights?.large_prs || []).map((p) => (
-                      <li key={p.number}>
+                      <li key={p.number} className="break-words">
                         #{p.number} {p.title.slice(0, 80)}
                         {p.title.length > 80 ? '…' : ''} ({p.changed_files} files)
                       </li>
@@ -472,7 +481,7 @@ export function TemporalClient() {
                   <p className="font-medium text-foreground">Hotfix-style titles</p>
                   <ul className="mt-1 space-y-1 text-muted-foreground">
                     {(data.pr_insights?.hotfix_patterns || []).map((p) => (
-                      <li key={p.number}>#{p.number} {p.title}</li>
+                      <li key={p.number} className="break-words">#{p.number} {p.title}</li>
                     ))}
                   </ul>
                 </div>
@@ -480,7 +489,7 @@ export function TemporalClient() {
                   <p className="font-medium text-foreground">Repeat churn files</p>
                   <ul className="mt-1 space-y-1 text-muted-foreground">
                     {(data.pr_insights?.repeat_files || []).map((f) => (
-                      <li key={f.path}>
+                      <li key={f.path} className="break-all">
                         {f.path} ({f.commits} commits)
                       </li>
                     ))}

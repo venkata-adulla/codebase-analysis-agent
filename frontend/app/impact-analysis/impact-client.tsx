@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { repositoryDisplayName } from '@/lib/repository-display'
 import { ExportMenu } from '@/components/export/ExportMenu'
+import { MetricExplainer } from '@/components/layout/metric-explainer'
 import type { CsvSection } from '@/lib/export/csv-export'
 
 const LS_KEY = 'caa:lastRepositoryId'
@@ -212,6 +213,14 @@ export function ImpactClient() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            <MetricExplainer
+              title="How to read impact metrics"
+              points={[
+                'Risk level summarizes predicted blast radius from dependency links and change context.',
+                'Impact % per service is a heuristic score (0–100) estimating likelihood/severity of downstream breakage.',
+                'Depth means graph distance from changed areas; deeper nodes are usually lower direct impact.',
+              ]}
+            />
             <div className="flex flex-wrap items-center gap-3">
               <Badge
                 variant={

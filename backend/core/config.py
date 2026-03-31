@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # OpenAI Configuration
     openai_api_key: str = ""
     openai_model: str = "gpt-5.3"
+    openai_model_fallbacks: str = "gpt-4o-mini,gpt-4.1-mini"
     openai_embedding_model: str = "text-embedding-3-small"
     openai_base_url: str = "https://api.openai.com/v1"
     
@@ -67,7 +68,7 @@ class Settings(BaseSettings):
     log_format: str = "json"  # json or text
     
     class Config:
-        env_file = ".env"
+        env_file = (".env", "backend/.env")
         case_sensitive = False
 
 
