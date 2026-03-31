@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import Optional, Dict, Any
 from github import Github
-from git import Repo, InvalidGitRepositoryError
+from git import Repo, InvalidGitRepositoryError, GitCommandError
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -46,16 +46,11 @@ class RepositoryManager:
         try:
             repo_id = str(uuid.uuid4())
             local_path = self.repositories_dir / repo_id
-
-            # Clone repository
-            if branch:
-                Repo.clone_from(clone_url, str(local_path), branch=branch)
-            else:
-                Repo.clone_from(clone_url, str(local_path))
-
+            self._clone_with_branch_fallback(clone_url, local_path, branch)
             logger.info(f"Cloned {owner}/{repo} to {local_path}")
             return str(local_path)
-
+        except GitCommandError as e:
+            raise ValueError(self._friendly_git_error(e, branch)) from e
         except Exception as e:
             logger.error(f"Failed to clone from GitHub: {e}")
             raise
@@ -69,18 +64,55 @@ class RepositoryManager:
         try:
             repo_id = str(uuid.uuid4())
             local_path = self.repositories_dir / repo_id
-            
-            if branch:
-                Repo.clone_from(url, str(local_path), branch=branch)
-            else:
-                Repo.clone_from(url, str(local_path))
-            
+            self._clone_with_branch_fallback(url, local_path, branch)
             logger.info(f"Cloned {url} to {local_path}")
             return str(local_path)
-            
+        except GitCommandError as e:
+            raise ValueError(self._friendly_git_error(e, branch)) from e
         except Exception as e:
             logger.error(f"Failed to clone from URL: {e}")
             raise
+
+    def _clone_with_branch_fallback(
+        self,
+        clone_url: str,
+        local_path: Path,
+        branch: Optional[str] = None,
+    ) -> None:
+        """Clone repo, retrying default branch when an explicit branch is missing."""
+        try:
+            if branch:
+                Repo.clone_from(clone_url, str(local_path), branch=branch)
+            else:
+                Repo.clone_from(clone_url, str(local_path))
+            return
+        except GitCommandError as exc:
+            err = str(exc).lower()
+            missing_branch = branch and "remote branch" in err and "not found" in err
+            if not missing_branch:
+                raise
+            logger.warning(
+                "Branch '%s' not found for %s; retrying clone with repository default branch.",
+                branch,
+                clone_url,
+            )
+            if local_path.exists():
+                shutil.rmtree(str(local_path), ignore_errors=True)
+            Repo.clone_from(clone_url, str(local_path))
+
+    def _friendly_git_error(self, exc: GitCommandError, branch: Optional[str]) -> str:
+        raw = str(exc)
+        low = raw.lower()
+        if branch and "remote branch" in low and "not found" in low:
+            return (
+                f"Branch '{branch}' does not exist on the remote repository. "
+                "Try leaving branch empty or use the repository default branch."
+            )
+        if "authentication failed" in low or "could not read username" in low:
+            return "Authentication failed while cloning repository. Check repository access/token."
+        if "connect tunnel failed" in low or "failed to connect" in low:
+            return "Unable to reach Git host from API server. Check outbound network/proxy settings."
+        return f"Git clone failed: {raw}"
     
     def use_local_path(
         self,

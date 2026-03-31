@@ -198,7 +198,7 @@ def _build_structural_summary(
     service_elements: List[Dict[str, Any]],
     dependencies: List[Dict[str, Any]],
 ) -> str:
-    """Plain-text 2–4 lines for cards when the LLM is off or returns no summary (no markdown)."""
+    """Readable fallback summary for cards when the LLM is off or returns no summary."""
     name = service.get("name", "Service")
     language = (service.get("language") or "unknown").strip()
     classification = str(service.get("classification") or "").replace("_", " ").strip()
@@ -215,41 +215,46 @@ def _build_structural_summary(
     outbound = [d for d in dependencies if str(d.get("source") or "") == sid]
     inbound = [d for d in dependencies if str(d.get("target") or "") == sid]
 
-    lines: List[str] = []
-    if classification:
-        lines.append(
-            f"{name} is a {language} module classified as {classification}."
-        )
-    else:
-        lines.append(f"{name} is a {language} module in this repository.")
-
     unique_files = {
         str(e.get("file_path") or "")
         for e in service_elements
         if (e.get("file_path") or "").strip()
     }
-    if len(unique_files) > 1:
-        lines.append(
-            f"Extracted symbols span {len(unique_files)} files in this package or module."
-        )
+    files_count = len(unique_files)
+    classes_count = len(classes)
+    funcs_count = len(functions)
 
-    if classes or functions:
-        lines.append(
-            f"It contains {len(classes)} class(es) and {len(functions)} public function(s) or methods."
-        )
-    elif not classes and not functions:
-        lines.append("No public classes or functions were detected in the extracted symbols.")
+    opening = f"**{name}** is a {language} module"
+    if classification:
+        opening += f" in the **{classification}** layer"
+    opening += "."
 
+    if classes_count or funcs_count:
+        behavior = (
+            f"In plain terms, this part of the codebase currently exposes about **{classes_count} class(es)** "
+            f"and **{funcs_count} public method/function entry points**."
+        )
+    else:
+        behavior = "In plain terms, no clear public API surface was detected from the extracted symbols."
+
+    coupling_parts: List[str] = []
     if outbound:
-        lines.append("It depends on other modules in this analysis.")
+        coupling_parts.append(f"it calls or depends on **{len(outbound)}** other mapped module link(s)")
     if inbound:
-        lines.append(f"It is referenced by {len(inbound)} other module(s).")
+        coupling_parts.append(f"it is used by **{len(inbound)}** inbound link(s)")
+    coupling = (
+        f"From the dependency graph perspective, {', and '.join(coupling_parts)}."
+        if coupling_parts
+        else "From the current dependency graph snapshot, strong coupling signals were not detected yet."
+    )
 
-    if path and len("\n".join(lines)) < 120:
-        lines.append(f"Entry file: {path}")
+    details = (
+        f"It draws information from **{files_count} source file(s)**"
+        + (f", primarily located at `{path}`." if path else ".")
+    )
 
-    text = "\n".join(lines[:5]).strip()
-    return text[:4000] if text else f"Module {name} ({language})."
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+    return summary[:4000] if summary else f"Module {name} ({language})."
 
 
 def _parse_doc_json_payload(raw: str) -> Tuple[str, str]:

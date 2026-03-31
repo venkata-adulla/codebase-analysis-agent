@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import {
   ArrowRight,
   CheckCircle2,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react'
 import api from '@/lib/api'
 import { PageHeader } from '@/components/layout/page-header'
+import { MetricExplainer } from '@/components/layout/metric-explainer'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -124,6 +126,15 @@ const analysisViews = [
 function isFailureStatus(status?: string | null) {
   const normalized = (status || '').toLowerCase()
   return normalized === 'failed' || normalized === 'error'
+}
+
+function analysisErrorMessage(error: unknown): string {
+  if (isAxiosError(error)) {
+    const detail = error.response?.data?.detail
+    if (typeof detail === 'string' && detail.trim()) return detail
+  }
+  if (error instanceof Error && error.message) return error.message
+  return 'Request failed'
 }
 
 function StatusRow({ label, value }: { label: string; value: string }) {
@@ -369,7 +380,7 @@ export default function AnalyzePage() {
 
             {analyzeMutation.isError && (
               <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-300">
-                {(analyzeMutation.error as Error)?.message || 'Request failed'}
+                {analysisErrorMessage(analyzeMutation.error)}
               </div>
             )}
 
@@ -463,6 +474,14 @@ export default function AnalyzePage() {
                   ))}
                 </div>
                 <div className="space-y-3">
+                  <MetricExplainer
+                    title="How to read progress metrics"
+                    points={[
+                      'Feature progress counts user-facing capabilities unlocked by completed agents.',
+                      'Pipeline execution progress tracks how many orchestrator agents have completed.',
+                      'A higher percentage means more analysis outputs are ready for downstream pages.',
+                    ]}
+                  />
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>Feature progress</span>
                     <span>

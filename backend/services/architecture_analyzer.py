@@ -770,7 +770,7 @@ def build_architecture_diagram(stack: Dict[str, Any]) -> Dict[str, Any]:
     if fe and be:
         edges.append({"id": "e1", "source": "frontend", "target": "backend", "label": "HTTP / API"})
     if be and db:
-        edges.append({"id": "e2", "source": "backend", "target": "database", "label": "Persistence"})
+        edges.append({"id": "e2", "source": "backend", "target": "database", "label": "Data access"})
     if be and ot:
         edges.append({"id": "e3", "source": "backend", "target": "external", "label": "Side services"})
     if not edges and len(nodes) == 2:
