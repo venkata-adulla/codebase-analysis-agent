@@ -248,6 +248,7 @@ export function ArchitectureClient() {
             <h2 className="text-sm font-semibold text-foreground">Executive summary</h2>
             <MarkdownBody className="mt-2 text-sm leading-relaxed">
               {executiveNarrative}
+              {String(data.narrative?.architecture_summary || '')}
             </MarkdownBody>
             <div className="mt-3 rounded-lg border border-border/60 bg-background/40 p-3">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -258,6 +259,32 @@ export function ArchitectureClient() {
                 <li>Higher confidence means stronger evidence from repo files/manifests.</li>
                 <li>“No strong signals” means the analyzer did not find enough static evidence.</li>
               </ul>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Coding style
+                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {String(data.narrative?.coding_style_summary || 'No coding-style narrative available.')}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Risk highlights
+                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {String(data.narrative?.risks_summary || 'No risk narrative available.')}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-background/40 p-3">
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Practices
+                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {String(data.narrative?.best_practices_summary || 'No best-practices narrative available.')}
+                </p>
+              </div>
             </div>
           </section>
 

@@ -76,6 +76,7 @@ export function ArchitectureDiagram({
   className?: string
 }) {
   const diagramId = useId().replace(/[^a-zA-Z0-9_-]/g, '')
+  const mid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const placedNodes = useMemo(() => layoutNodes(nodes), [nodes])
   const byId = useMemo(() => Object.fromEntries(placedNodes.map((n) => [n.id, n])), [placedNodes])
 
@@ -139,6 +140,9 @@ export function ArchitectureDiagram({
                 strokeLinecap="round"
                 className="text-primary/45"
                 strokeDasharray="2 1.2"
+                strokeWidth="1"
+                className="text-primary/50"
+                markerEnd={`url(#arch-arrow-${mid})`}
               />
             </g>
           )
@@ -154,6 +158,7 @@ export function ArchitectureDiagram({
         return (
           <div
             key={`label-${diagramId}-${e.id}`}
+            key={`label-${e.id}`}
             className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border/70 bg-background/80 px-2 py-0.5 text-[10px] text-muted-foreground shadow-sm"
             style={{ left: `${lx}%`, top: `${ly}%` }}
           >
@@ -167,6 +172,7 @@ export function ArchitectureDiagram({
           key={n.id}
           className={cn(
             'pointer-events-none absolute z-10 max-w-[min(40%,240px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-3 py-2.5 text-center shadow-lg ring-1 backdrop-blur-[2px]',
+            'pointer-events-none absolute z-10 max-w-[min(44%,210px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-3 py-2.5 text-center shadow-lg ring-1 backdrop-blur-[2px]',
             TYPE_RING[n.type] || 'ring-border bg-muted/30'
           )}
           style={{ left: `${n.x}%`, top: `${n.y}%` }}

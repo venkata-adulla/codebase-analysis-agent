@@ -224,6 +224,17 @@ def _build_structural_summary(
     classes_count = len(classes)
     funcs_count = len(functions)
 
+
+
+
+
+
+    opening = f"**{name}** is a {language} module"
+    if classification:
+        opening += f" in the **{classification}** layer"
+    opening += "."
+
+
     opening = f"**{name}** is a {language} module"
     if classification:
         opening += f" in the **{classification}** layer"
@@ -254,6 +265,84 @@ def _build_structural_summary(
     )
 
     summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
+    details = (
+        f"It draws information from **{files_count} source file(s)**"
+        + (f", primarily located at `{path}`." if path else ".")
+    )
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
+    details = (
+        f"It draws information from **{files_count} source file(s)**"
+        + (f", primarily located at `{path}`." if path else ".")
+    )
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
+    details = (
+        f"It draws information from **{files_count} source file(s)**"
+        + (f", primarily located at `{path}`." if path else ".")
+    )
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
+    details = (
+        f"It draws information from **{files_count} source file(s)**"
+        + (f", primarily located at `{path}`." if path else ".")
+    )
+
+    summary = f"{opening}\n\n{behavior}\n\n{coupling}\n\n{details}".strip()
+
+    opening = (
+        f"**{name}** is a **{language}** module"
+        + (f" classified as **{classification}**" if classification else "")
+        + "."
+    )
+
+    if classes_count or funcs_count:
+        behavior = (
+            f"It appears to define the core behavior through **{classes_count} class(es)** "
+            f"and **{funcs_count} public function(s)/method(s)**."
+        )
+    else:
+        behavior = "No public classes or functions were detected in the extracted symbols."
+
+    coupling_parts: List[str] = []
+    if outbound:
+        coupling_parts.append(f"depends on **{len(outbound)}** mapped dependency link(s)")
+    if inbound:
+        coupling_parts.append(f"is referenced by **{len(inbound)}** inbound link(s)")
+    coupling = (
+        f"In this repository graph, it {', and '.join(coupling_parts)}."
+        if coupling_parts
+        else "In this repository graph, no strong coupling signals were detected yet."
+    )
+
+    bullets: List[str] = []
+    bullets.append(f"- Language: **{language}**")
+    if classification:
+        bullets.append(f"- Module type: **{classification}**")
+    bullets.append(f"- Files contributing symbols: **{files_count}**")
+    bullets.append(f"- Public API surface: **{classes_count} classes**, **{funcs_count} methods/functions**")
+    if path:
+        bullets.append(f"- Source location: `{path}`")
+
+    summary = (
+        f"{opening}\n\n"
+        f"{behavior}\n\n"
+        f"{coupling}\n\n"
+        "### At a glance\n"
+        + "\n".join(bullets)
+    ).strip()
     return summary[:4000] if summary else f"Module {name} ({language})."
 
 
