@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useMemo } from 'react'
+import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 
 export type ArchNode = {
@@ -17,6 +17,14 @@ export type ArchEdge = {
   source: string
   target: string
   label: string
+}
+
+function sublabelTokens(text: string): string[] {
+  return (text || '')
+    .split(/[,|•]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 4)
 }
 
 const TYPE_RING: Record<string, string> = {
@@ -40,6 +48,24 @@ function edgePath(x1: number, y1: number, x2: number, y2: number): string {
   return `M ${x1} ${y1} Q ${mx} ${my} ${x2} ${y2}`
 }
 
+function layoutNodes(nodes: ArchNode[]): ArchNode[] {
+  const byType: Record<string, ArchNode[]> = { frontend: [], backend: [], database: [], other: [] }
+  for (const n of nodes) {
+    if (byType[n.type]) byType[n.type].push(n)
+    else byType.other.push(n)
+  }
+  const out: ArchNode[] = []
+  const place = (arr: ArchNode[], y: number, xStart: number, step: number) => {
+    arr.forEach((n, i) => out.push({ ...n, x: xStart + i * step, y }))
+  }
+
+  place(byType.frontend, 18, 50 - ((byType.frontend.length - 1) * 14) / 2, 14)
+  place(byType.backend, 44, 50 - ((byType.backend.length - 1) * 16) / 2, 16)
+  place(byType.database, 76, 50 - ((byType.database.length - 1) * 16) / 2, 16)
+  place(byType.other, 44, 80, 12)
+  return out
+}
+
 export function ArchitectureDiagram({
   nodes,
   edges,
@@ -49,8 +75,8 @@ export function ArchitectureDiagram({
   edges: ArchEdge[]
   className?: string
 }) {
-  const mid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
-  const byId = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes])
+  const placedNodes = useMemo(() => layoutNodes(nodes), [nodes])
+  const byId = useMemo(() => Object.fromEntries(placedNodes.map((n) => [n.id, n])), [placedNodes])
 
   if (!nodes.length) {
     return (
@@ -73,6 +99,18 @@ export function ArchitectureDiagram({
       )}
     >
       <div className="pointer-events-none absolute inset-0 [background-image:radial-gradient(circle_at_1px_1px,hsl(215_25%_32%/0.22)_1px,transparent_0)] [background-size:22px_22px]" />
+      <div className="pointer-events-none absolute inset-x-0 top-[8%] h-[20%] rounded-md border border-sky-500/15 bg-sky-500/[0.03]" />
+      <div className="pointer-events-none absolute inset-x-0 top-[34%] h-[24%] rounded-md border border-violet-500/15 bg-violet-500/[0.03]" />
+      <div className="pointer-events-none absolute inset-x-0 top-[66%] h-[20%] rounded-md border border-emerald-500/15 bg-emerald-500/[0.03]" />
+      <div className="pointer-events-none absolute left-2 top-2 text-[10px] uppercase tracking-wide text-muted-foreground/80">
+        Presentation / Entry
+      </div>
+      <div className="pointer-events-none absolute left-2 top-[38%] text-[10px] uppercase tracking-wide text-muted-foreground/80">
+        Application / API
+      </div>
+      <div className="pointer-events-none absolute left-2 top-[70%] text-[10px] uppercase tracking-wide text-muted-foreground/80">
+        Data / Persistence
+      </div>
       {/*
         Use preserveAspectRatio="none" so viewBox 0–100 maps to the full SVG box. With "meet",
         the square viewBox is letterboxed inside a wide rectangle and edge endpoints no longer
@@ -84,62 +122,65 @@ export function ArchitectureDiagram({
         className="absolute inset-0 z-0 h-full w-full text-primary/60"
         aria-hidden
       >
-        <defs>
-          <marker
-            id={`arch-arrow-${mid}`}
-            markerWidth="5"
-            markerHeight="5"
-            refX="4.2"
-            refY="2.5"
-            orient="auto"
-            markerUnits="strokeWidth"
-          >
-            <path d="M0,0 L5,2.5 L0,5 z" fill="currentColor" className="text-primary/60" />
-          </marker>
-        </defs>
         {edges.map((e) => {
           const a = byId[e.source]
           const b = byId[e.target]
           if (!a || !b) return null
           const d = edgePath(a.x, a.y, b.x, b.y)
-          const lx = (a.x + b.x) / 2
-          const ly = (a.y + b.y) / 2
           return (
             <g key={e.id}>
               <path
                 d={d}
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="0.85"
+                strokeWidth="1.35"
+                strokeLinecap="round"
                 className="text-primary/45"
-                markerEnd={`url(#arch-arrow-${mid})`}
+                strokeDasharray="2 1.2"
               />
-              <text
-                x={lx}
-                y={ly - 3.2}
-                fill="currentColor"
-                className="text-[3.4px] font-medium text-muted-foreground"
-                textAnchor="middle"
-                style={{ textShadow: '0 0 8px hsl(var(--background) / 0.9)' }}
-              >
-                {e.label}
-              </text>
             </g>
           )
         })}
       </svg>
 
-      {nodes.map((n) => (
+      {edges.map((e) => {
+        const a = byId[e.source]
+        const b = byId[e.target]
+        if (!a || !b || !e.label) return null
+        const lx = (a.x + b.x) / 2
+        const ly = (a.y + b.y) / 2
+        return (
+          <div
+            key={`label-${e.id}`}
+            className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border/70 bg-background/80 px-2 py-0.5 text-[10px] text-muted-foreground shadow-sm"
+            style={{ left: `${lx}%`, top: `${ly}%` }}
+          >
+            {e.label}
+          </div>
+        )
+      })}
+
+      {placedNodes.map((n) => (
         <div
           key={n.id}
           className={cn(
-            'pointer-events-none absolute z-10 max-w-[min(44%,180px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-3 py-2.5 text-center shadow-lg ring-1 backdrop-blur-[2px]',
+            'pointer-events-none absolute z-10 max-w-[min(40%,240px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border px-3 py-2.5 text-center shadow-lg ring-1 backdrop-blur-[2px]',
             TYPE_RING[n.type] || 'ring-border bg-muted/30'
           )}
           style={{ left: `${n.x}%`, top: `${n.y}%` }}
         >
           <div className="text-[12px] font-semibold leading-snug text-foreground">{n.label}</div>
-          <div className="mt-1 line-clamp-4 text-[10px] leading-snug text-muted-foreground">{n.sublabel}</div>
+          <div className="mt-1 line-clamp-2 text-[10px] leading-snug text-muted-foreground">{n.sublabel}</div>
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-1">
+            {sublabelTokens(n.sublabel).map((token) => (
+              <span
+                key={`${n.id}-${token}`}
+                className="rounded-full border border-border/60 bg-background/70 px-1.5 py-0.5 text-[9px] text-muted-foreground"
+              >
+                {token}
+              </span>
+            ))}
+          </div>
         </div>
       ))}
     </div>
