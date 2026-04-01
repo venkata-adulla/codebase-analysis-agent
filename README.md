@@ -1,114 +1,91 @@
-# Codebase Analysis Agent System
+# Repository Analysis Agent
 
-A production-ready AI agent system that analyzes legacy codebases across multiple languages, creates dependency graphs, documents services, and performs impact analysis.
+An AI-assisted system for analyzing software repositories: clone or attach code, run a multi-agent pipeline, explore dependency graphs and architecture views, review technical debt, and ask questions about the codebase through a web UI.
 
 ## Features
 
-- **Multi-Repository Analysis**: Support for GitHub repositories, local files, and Git clone
-- **Multi-Language Support**: Python, Java, JavaScript/TypeScript, and more
-- **Dependency Graph Generation**: Service-level dependencies, API endpoints, databases
-- **Impact Analysis**: Change propagation analysis, breaking change detection, risk scoring
-- **Human-in-the-Loop**: Agent checkpoints for ambiguous cases requiring human input
-- **Documentation Generation**: AI-powered service documentation using OpenAI
+- **Repository onboarding**: Clone from Git URLs (including GitHub), or use local paths; branches and shallow clones supported where configured.
+- **Multi-language analysis**: Static analysis and parsers for Python, JavaScript/TypeScript, Java, and related ecosystems.
+- **Service inventory**: Discovered modules/services with AI-generated or structural documentation, searchable from the Services area.
+- **Dependency graph**: Interactive graph (React Flow) with service nodes, edges, filters, and optional temporal churn overlay on nodes.
+- **Architecture views**: Summaries and diagrams derived from the graph and heuristics.
+- **Impact analysis**: Heuristic blast-radius and risk signals from dependency structure and change context.
+- **Temporal analysis**: Git history, merged PRs, and PR comments with drift statements, heatmap-style churn, and timeline; configurable sample sizes per request (defaults keep responses fast).
+- **Technical debt**: Scored categories, issue lists, remediation-oriented views, and per-category explanations of how scores are derived (weights, normalization, coverage).
+- **Cross-repository comparison**: Compare cached metrics across repositories.
+- **Human review**: Resolve checkpoints when the pipeline pauses on ambiguous dependencies.
+- **Codebase chat**: Grounded Q&A over service summaries and graph context (requires OpenAI).
+- **Operator UI**: Top navigation, brand styling, and semantic action colors (primary, success, warning, destructive) for a consistent workflow.
 
 ## Architecture
 
-- **Backend**: FastAPI with multi-agent orchestration
-- **Frontend**: Next.js 14+ with React Flow for visualizations
-- **Databases**: Neo4j (graph), PostgreSQL (metadata), Qdrant (vector search), Redis (caching)
-- **AI**: OpenAI API for documentation generation
+| Layer | Technology |
+|-------|------------|
+| **API** | FastAPI, Alembic migrations on startup |
+| **UI** | Next.js (App Router), Tailwind CSS, React Flow |
+| **Relational data** | PostgreSQL (repositories, services, tech-debt artifacts, analysis metadata) |
+| **Graph** | Neo4j (Bolt) for dependency graph storage and queries |
+| **Cache & rate limiting** | Redis (report caching, chat cache, API rate-limit backend) |
 
-## Quick Start
+Infrastructure for local development is defined in `docker-compose.yml` (PostgreSQL, Neo4j, Redis).
+
+## Quick start
 
 ### Prerequisites
 
-- Docker and Docker Compose
+- Docker and Docker Compose (for databases)
 - Python 3.10+
 - Node.js 18+
 
-### Backend Setup
+### Backend
 
-1. Navigate to backend directory:
 ```bash
 cd backend
-```
-
-2. Install dependencies:
-```bash
 pip install -r requirements.txt
 ```
 
-3. Copy environment file:
+From the repository root, start PostgreSQL, Neo4j, and Redis:
+
 ```bash
-cp .env.example .env
-# Edit .env with your configuration
+docker compose up -d postgres neo4j redis
 ```
 
-4. Set required keys (or add to .env):
+Run the API (omit `--reload` if you run long analyses that clone into `backend/repositories/`, so in-memory analysis state is not reset on file writes):
+
 ```bash
-export GITHUB_TOKEN=<your-github-token>  # optional for public repos, required for private repos
-export NEXT_PUBLIC_API_KEY=dev-local-key
-# Optional to override API url
-export NEXT_PUBLIC_API_URL=http://localhost:8000
+cd backend
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-5. Start Docker services:
-```bash
-docker-compose up -d
-```
+Configure secrets and options via environment variables or `backend/.env` (see `backend/core/config.py`). `OPENAI_API_KEY` and `GITHUB_TOKEN` are optional but unlock more features.
 
-5. Initialize database:
-```bash
-alembic upgrade head
-```
+If database migrations fail on a completely empty database, see [`AGENTS.md`](./AGENTS.md) for the one-time initialization notes.
 
-6. Run the server:
-```bash
-uvicorn main:app --reload
-```
+### Frontend
 
-### Frontend Setup
-
-1. Navigate to frontend directory:
 ```bash
 cd frontend
-```
-
-2. Install dependencies:
-```bash
-npm install
-```
-
-3. Run development server:
-```bash
+npm install --legacy-peer-deps
 npm run dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000)
+Open [http://localhost:3000](http://localhost:3000). The app typically proxies API calls to the backend via `next.config.js`; set `NEXT_PUBLIC_API_URL` if you run the API on another origin.
 
-## API Documentation
+## API documentation
 
-Once the backend is running:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-- Metrics: http://localhost:8000/metrics
+With the backend running:
 
-## Project Structure
+- Swagger UI: http://localhost:8000/docs  
+- ReDoc: http://localhost:8000/redoc  
+
+## Repository layout
 
 ```
-codebase-analysis-agent/
-├── backend/          # FastAPI backend
-│   ├── agents/       # AI agents
-│   ├── api/         # API routes
-│   ├── core/        # Core configuration
-│   ├── models/      # Database models
-│   ├── parsers/      # Code parsers
-│   └── services/    # Business logic
-├── frontend/         # Next.js frontend
-│   ├── app/         # Next.js app router
-│   ├── components/  # React components
-│   └── lib/         # Utilities
-└── docker-compose.yml
+├── backend/       # FastAPI application, agents, services, models
+├── frontend/      # Next.js application
+├── docker-compose.yml
+├── AGENTS.md      # Maintainer notes (DB edge cases, dev constraints)
+└── README.md
 ```
 
 ## License

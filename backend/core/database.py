@@ -4,7 +4,6 @@ from neo4j import GraphDatabase
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from qdrant_client import QdrantClient
 from redis import Redis
 
 from core.config import get_settings
@@ -64,28 +63,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-# Qdrant Connection
-_qdrant_client: Optional[QdrantClient] = None
-
-
-def get_qdrant_client():
-    """Get or create Qdrant client instance."""
-    global _qdrant_client
-    if _qdrant_client is None:
-        try:
-            _qdrant_client = QdrantClient(
-                host=settings.qdrant_host,
-                port=settings.qdrant_port
-            )
-            # Test connection
-            _qdrant_client.get_collections()
-            logger.info("Qdrant connection established")
-        except Exception as e:
-            logger.error(f"Failed to connect to Qdrant: {e}")
-            raise
-    return _qdrant_client
 
 
 # Redis Connection

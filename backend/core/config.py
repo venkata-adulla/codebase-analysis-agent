@@ -17,10 +17,6 @@ class Settings(BaseSettings):
     postgres_password: str = "password123"
     postgres_url: str = ""
     
-    # Qdrant Configuration
-    qdrant_host: str = "localhost"
-    qdrant_port: int = 6333
-    
     # Redis Configuration
     redis_host: str = "localhost"
     redis_port: int = 6379

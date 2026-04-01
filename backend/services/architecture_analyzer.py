@@ -71,7 +71,6 @@ DOCKER_IMAGE_HINTS = [
     ("mongo", "database", "MongoDB", 0.88),
     ("redis", "other", "Redis", 0.9),
     ("neo4j", "other", "Neo4j", 0.88),
-    ("qdrant", "other", "Qdrant", 0.85),
 ]
 
 # Maven <artifactId> -> (category, display_name, confidence)
