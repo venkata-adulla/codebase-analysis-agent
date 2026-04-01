@@ -664,10 +664,10 @@ export function TemporalClient() {
                       className={cn(
                         'mr-2 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase',
                         ins.severity === 'high'
-                          ? 'bg-red-500/15 text-red-400'
+                          ? 'bg-destructive/15 text-destructive'
                           : ins.severity === 'low'
                             ? 'bg-muted text-muted-foreground'
-                            : 'bg-amber-500/15 text-amber-400'
+                            : 'bg-[hsl(var(--warning))]/20 text-[hsl(var(--warning-foreground))]'
                       )}
                     >
                       {ins.severity}

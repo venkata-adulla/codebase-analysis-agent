@@ -130,7 +130,7 @@ export default function AgentStatusPage() {
             <CardHeader>
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-amber-400" />
+                  <Clock className="h-5 w-5 text-[hsl(var(--warning))]" />
                   <CardTitle className="text-base">Pending</CardTitle>
                 </div>
                 <Badge variant="warning">{pending.length}</Badge>
@@ -199,7 +199,7 @@ export default function AgentStatusPage() {
                               key={idx}
                               type="button"
                               size="sm"
-                              variant="secondary"
+                              variant="success"
                               disabled={resolveMutation.isPending}
                               className="text-xs"
                               onClick={() => {
@@ -235,7 +235,7 @@ export default function AgentStatusPage() {
             <CardHeader>
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                  <CheckCircle2 className="h-5 w-5 text-success" />
                   <CardTitle className="text-base">Resolved</CardTitle>
                 </div>
                 <Badge variant="success">{resolved.length}</Badge>

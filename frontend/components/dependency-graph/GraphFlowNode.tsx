@@ -24,10 +24,10 @@ function GraphFlowNodeInner({ data, selected }: NodeProps<GraphFlowNodeData>) {
   const churnRing =
     churn != null && churn > 0.15
       ? churn > 0.55
-        ? 'ring-2 ring-red-500/55 ring-offset-1 ring-offset-background'
+        ? 'ring-2 ring-destructive/55 ring-offset-1 ring-offset-background'
         : churn > 0.3
-          ? 'ring-2 ring-amber-500/45 ring-offset-1 ring-offset-background'
-          : 'ring-1 ring-emerald-500/35'
+          ? 'ring-2 ring-[hsl(var(--warning))]/55 ring-offset-1 ring-offset-background'
+          : 'ring-1 ring-success/40'
       : ''
 
   return (
@@ -43,8 +43,8 @@ function GraphFlowNodeInner({ data, selected }: NodeProps<GraphFlowNodeData>) {
         width: m.width,
         minHeight: m.height,
         borderColor: stroke,
-        background: `linear-gradient(165deg, hsl(222 28% 16%) 0%, hsl(222 32% 10%) 100%)`,
-        boxShadow: `inset 0 1px 0 hsl(210 40% 98% / 0.06), 0 4px 20px hsl(222 47% 4% / 0.45)`,
+        background: `linear-gradient(165deg, hsl(0 0% 100%) 0%, hsl(210 25% 96%) 100%)`,
+        boxShadow: `inset 0 1px 0 hsl(210 40% 98%), 0 2px 12px hsl(222 47% 4% / 0.12)`,
       }}
     >
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-muted-foreground" />
@@ -54,7 +54,7 @@ function GraphFlowNodeInner({ data, selected }: NodeProps<GraphFlowNodeData>) {
         {isCluster ? <span className="text-primary">cluster</span> : null}
         <span title="risk">R{m.riskScore}</span>
         {churn != null && churn > 0.05 ? (
-          <span title="Temporal churn (recent sample)" className="text-[9px] text-amber-400/90">
+          <span title="Temporal churn (recent sample)" className="text-[9px] text-[hsl(var(--warning))]">
             Δ{Math.round(churn * 100)}%
           </span>
         ) : null}

@@ -63,7 +63,7 @@ export function ServiceDetailClient({ serviceId }: { serviceId: string }) {
         href={backHref}
         className={cn(
           buttonVariants({ variant: 'ghost', size: 'sm' }),
-          '-ml-2 gap-1 text-muted-foreground hover:text-foreground'
+          '-ml-2 gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive'
         )}
       >
         <ArrowLeft className="h-4 w-4" />

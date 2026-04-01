@@ -398,7 +398,7 @@ export default function AnalyzePage() {
             </div>
 
             {analyzeMutation.isError && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 {analysisErrorMessage(analyzeMutation.error)}
               </div>
             )}
@@ -422,7 +422,12 @@ export default function AnalyzePage() {
                 )}
               </Button>
               {activeRepoId ? (
-                <Button type="button" variant="ghost" size="sm" onClick={() => setActiveRepoId(null)}>
+                <Button
+                  type="button"
+                  variant="outline-destructive"
+                  size="sm"
+                  onClick={() => setActiveRepoId(null)}
+                >
                   Clear result
                 </Button>
               ) : null}
@@ -463,7 +468,7 @@ export default function AnalyzePage() {
                     {status || 'queued'}
                   </Badge>
                   {!isFailureStatus(status) && terminalStatuses.has(status || '') && (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400" aria-hidden />
+                    <CheckCircle2 className="h-4 w-4 text-success" aria-hidden />
                   )}
                 </div>
                 <StatusRow label="Analysis ID" value={activeRepoId} />
@@ -517,7 +522,7 @@ export default function AnalyzePage() {
                     <p className="text-xs text-muted-foreground">{statusData.message}</p>
                   ) : null}
                   {isFailureStatus(status) && statusData?.message ? (
-                    <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+                    <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                       {statusData.message}
                     </div>
                   ) : null}
@@ -541,11 +546,11 @@ export default function AnalyzePage() {
                             className={cn(
                               'text-xs',
                               current
-                                ? 'font-medium text-primary'
+                                ? 'font-medium text-[hsl(var(--warning))]'
                                 : failed
-                                  ? 'text-red-400/80'
+                                  ? 'text-destructive'
                                   : done
-                                    ? 'text-emerald-400'
+                                    ? 'text-success'
                                     : 'text-muted-foreground/60',
                             )}
                           >
@@ -585,10 +590,10 @@ export default function AnalyzePage() {
                               <span
                                 className={cn(
                                   'text-xs font-medium',
-                                  st === 'completed' && 'text-emerald-400',
-                                  st === 'in_progress' && 'text-primary',
+                                  st === 'completed' && 'text-success',
+                                  st === 'in_progress' && 'text-[hsl(var(--warning))]',
                                   st === 'pending' && 'text-muted-foreground/70',
-                                  st === 'blocked' && 'text-red-400/90',
+                                  st === 'blocked' && 'text-destructive',
                                 )}
                               >
                                 {mark} {f.label}

@@ -94,7 +94,7 @@ export default function Home() {
               Multi-agent codebase intelligence
             </div>
             <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-              Codebase Analysis Agent
+              Repository Analysis Agent
             </h1>
             <p className="text-base text-muted-foreground md:text-lg">
               Map dependencies, detect technical debt, document services, and assess change impact

@@ -11,7 +11,7 @@ const sans = Plus_Jakarta_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'Codebase Analysis Agent',
+  title: 'Repository Analysis Agent',
   description: 'Enterprise AI-powered codebase analysis, dependency mapping, and impact assessment.',
 }
 
@@ -21,7 +21,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body className={`${sans.variable} font-sans`}>
         <Providers>
           <AppShell>{children}</AppShell>

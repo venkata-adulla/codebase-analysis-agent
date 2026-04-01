@@ -486,7 +486,7 @@ function InnerGraph() {
       />
 
       {processed.capped ? (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
+        <p className="text-xs text-[hsl(var(--warning-foreground))]/80">
           Showing top {MAX_LAYOUT_NODES} highest-degree services for layout performance. Narrow filters or scope.
         </p>
       ) : null}
@@ -548,10 +548,10 @@ function InnerGraph() {
                 className="!bg-card/90 !border-border"
                 zoomable
                 pannable
-                maskColor="hsl(222 47% 6% / 0.5)"
+                maskColor="hsl(210 25% 50% / 0.35)"
               />
               <Controls className="!bg-card/95 !border-border !shadow-lg" />
-              <Background gap={22} size={1} color="hsl(215 25% 28% / 0.4)" />
+              <Background gap={22} size={1} color="hsl(215 16% 72% / 0.5)" />
             </ReactFlow>
           )}
         </div>

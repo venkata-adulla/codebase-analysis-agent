@@ -135,7 +135,7 @@ export function ArchitectureDiagram({
             refY="1"
             orient="auto"
           >
-            <path d="M0,0 L0,2 L2,1 z" fill="hsl(var(--primary) / 0.55)" />
+            <path d="M0,0 L0,2 L2,1 z" fill="#2e2d788c" />
           </marker>
         </defs>
         {edges.map((e) => {
@@ -148,7 +148,7 @@ export function ArchitectureDiagram({
               key={e.id}
               d={d}
               fill="none"
-              stroke="hsl(var(--primary) / 0.42)"
+              stroke="#2e2d786b"
               strokeWidth="0.42"
               strokeLinecap="round"
               strokeLinejoin="round"

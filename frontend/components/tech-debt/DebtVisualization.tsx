@@ -25,10 +25,10 @@ interface DebtVisualizationProps {
 }
 
 const COLORS = {
-  critical: '#dc2626',
+  critical: '#ed1651',
   high: '#ea580c',
-  medium: '#f59e0b',
-  low: '#84cc16',
+  medium: '#d4a017',
+  low: '#28bd5a',
 }
 
 export default function DebtVisualization({ metrics, report }: DebtVisualizationProps) {
