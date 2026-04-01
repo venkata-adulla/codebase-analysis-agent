@@ -60,3 +60,31 @@ Thumbs.db
 uploads/
 repositories/
 *.pyc
+docs/
+memories/
+scripts/
+AGENTS.md
+TECH_DEBT_FEATURE.md
+
+# Python tooling & coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+htmlcov/
+.coverage
+coverage.xml
+.hypothesis/
+
+# Local Docker overrides
+docker-compose.override.yml
+
+# Keys / certs (never commit)
+*.pem
+*.key
+
+# Generic caches
+.cache/
+
+# Optional: local Cursor (uncomment if you want)
+.cursor/
