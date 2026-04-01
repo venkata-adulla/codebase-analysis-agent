@@ -18,7 +18,7 @@ const nav = [
   { href: '/compare', label: 'Compare' },
   { href: '/services', label: 'Services' },
   { href: '/impact-analysis', label: 'Impact' },
-  { href: '/tech-debt', label: 'Tech debt' },
+  { href: '/tech-debt', label: 'Tech Debt' },
   { href: '/agent-status', label: 'Human Review' },
 ]
 

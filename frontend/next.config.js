@@ -48,6 +48,8 @@ if (process.env.NODE_ENV === 'development') {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Hide the Next.js dev overlay toggle (bottom-left "N" icon) in development
+  devIndicators: false,
   reactStrictMode: true,
   transpilePackages: ['elkjs'],
   async rewrites() {

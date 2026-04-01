@@ -53,28 +53,43 @@ export default function RemediationPlan({ repositoryId }: RemediationPlanProps) 
     <div className="space-y-6">
       {/* Plan Overview */}
       <div className="rounded-xl border border-border/80 bg-card/50 p-6">
-        <h2 className="mb-4 text-xl font-semibold text-foreground">
+        <h2 className="mb-2 text-xl font-semibold text-foreground">
           {plan.plan_name || 'Remediation plan'}
         </h2>
+        <p className="mb-6 text-sm leading-relaxed text-muted-foreground">
+          The three numbers below count <span className="font-medium text-foreground">debt items</span> for this
+          repository after the analyzer assigns each item a priority band from impact and estimated effort.
+          They match the <span className="font-medium text-foreground">Priority 1 / 2 / 3</span> labels on the
+          Debt items tab. Items classified as “avoid” (priority 4) are not included here.
+        </p>
 
         {plan.priority_breakdown && (
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4">
-              <p className="text-sm text-muted-foreground">Quick wins</p>
-              <p className="text-2xl font-bold text-emerald-400">
+              <p className="text-sm font-medium text-foreground">Quick wins</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
                 {plan.priority_breakdown.quick_wins || 0}
+              </p>
+              <p className="mt-2 text-xs leading-snug text-muted-foreground">
+                Priority 1 — high impact with low effort (typically hours). Best to schedule first.
               </p>
             </div>
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
-              <p className="text-sm text-muted-foreground">Strategic</p>
-              <p className="text-2xl font-bold text-amber-400">
+              <p className="text-sm font-medium text-foreground">Strategic</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-amber-600 dark:text-amber-400">
                 {plan.priority_breakdown.strategic || 0}
+              </p>
+              <p className="mt-2 text-xs leading-snug text-muted-foreground">
+                Priority 2 — high impact but larger effort (days or more). Plan as focused initiatives.
               </p>
             </div>
             <div className="rounded-lg border border-border bg-muted/40 p-4">
-              <p className="text-sm text-muted-foreground">Fill-ins</p>
-              <p className="text-2xl font-bold text-foreground">
+              <p className="text-sm font-medium text-foreground">Fill-ins</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">
                 {plan.priority_breakdown.fill_ins || 0}
+              </p>
+              <p className="mt-2 text-xs leading-snug text-muted-foreground">
+                Priority 3 — lower impact or smaller slices of work. Good for slack time or batch cleanup.
               </p>
             </div>
           </div>

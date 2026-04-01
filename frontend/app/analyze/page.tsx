@@ -65,7 +65,7 @@ const ANALYSIS_FEATURES: {
   },
   {
     id: 'tech_debt',
-    label: 'Tech debt report',
+    label: 'Tech Debt report',
     hint: 'Persisted after pipeline',
     dependsOn: ['tech_debt_agent'],
   },
@@ -115,7 +115,7 @@ function computeFeatureStatus(
 const analysisViews = [
   { label: 'Architecture', href: '/architecture', repoScoped: true },
   { label: 'Temporal', href: '/temporal', repoScoped: true },
-  { label: 'Tech debt', href: '/tech-debt', repoScoped: true },
+  { label: 'Tech Debt', href: '/tech-debt', repoScoped: true },
   { label: 'Impact', href: '/impact-analysis', repoScoped: true },
   { label: 'Services', href: '/services', repoScoped: true },
   { label: 'Graph', href: '/dependency-graph', repoScoped: true },

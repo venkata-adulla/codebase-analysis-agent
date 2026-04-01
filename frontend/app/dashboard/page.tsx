@@ -195,7 +195,7 @@ export default function DashboardPage() {
                         href={`/tech-debt?repo=${encodeURIComponent(repo.id)}`}
                         className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
                       >
-                        Tech debt
+                        Tech Debt
                       </Link>
                       <Link
                         href={`/impact-analysis?repo=${encodeURIComponent(repo.id)}`}

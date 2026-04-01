@@ -266,27 +266,67 @@ def _drift_statements_sample(
 ) -> List[str]:
     """Drift lines scoped to the sampled commits / PRs / comments only."""
     statements: List[str] = []
-    for sid, n in sorted(churn_full.items(), key=lambda x: -x[1]):
+    denom = max(n_commits, 1)
+
+    if n_commits > 0:
+        statements.append(
+            f"Drift uses the newest {n_commits} commit(s) in the sample; touches are mapped to your service inventory."
+        )
+
+    module_lines: List[str] = []
+    sorted_churn = sorted(churn_full.items(), key=lambda x: -x[1])
+    for rank, (sid, n) in enumerate(sorted_churn):
+        if rank >= 8:
+            break
         prev = churn_first.get(sid, 0)
         now = churn_second.get(sid, 0)
         deg = degrees.get(sid, 0)
+        label = names.get(sid, sid)
+        # Thresholds relaxed for small samples (e.g. 10 commits)
         if n >= 2 and deg >= 6:
-            statements.append(
-                f"Module «{names.get(sid, sid)}» is highly connected (graph degree ~{deg}) and "
-                f"appears in {n}/{n_commits} sampled commits — review coupling risk."
+            module_lines.append(
+                f"Module «{label}» is highly connected (graph degree ~{deg}) and "
+                f"appears in {n}/{denom} sampled commits — review coupling risk."
             )
-        elif n >= 3:
-            statements.append(
-                f"Module «{names.get(sid, sid)}» is touched in {n}/{n_commits} sampled commits."
+        elif n >= 2:
+            module_lines.append(
+                f"Module «{label}» is touched in {n}/{denom} sampled commits."
             )
-        elif prev > 0 and now > prev and now >= 2:
-            statements.append(
-                f"Churn rose for «{names.get(sid, sid)}» in the newer half of the sample ({prev} → {now})."
+        elif prev > 0 and now > prev and now >= 1:
+            module_lines.append(
+                f"Churn rose for «{label}» in the newer half of the sample ({prev} → {now})."
             )
+        elif n >= 1 and deg >= 4:
+            module_lines.append(
+                f"Module «{label}» (graph degree ~{deg}) has {n} touch(es) in this sample."
+            )
+        elif n >= 1 and rank < 3:
+            module_lines.append(
+                f"Module «{label}» appears in {n} sampled commit(s)."
+            )
+
+    if module_lines:
+        statements.extend(module_lines)
+    elif n_commits > 0 and churn_full:
+        sid, n = max(churn_full.items(), key=lambda x: x[1])
+        statements.append(
+            f"Most activity in sample: «{names.get(sid, sid)}» ({n} file→module touch(es))."
+        )
+    elif n_commits > 0 and not churn_full:
+        statements.append(
+            "Sampled commits did not map to known service modules—re-run repository analysis or check file paths."
+        )
+
     if n_prs:
-        statements.append(f"Sample includes {n_prs} recent merged PR(s) (newest first).")
+        statements.append(f"GitHub sample: {n_prs} merged PR(s) (newest first).")
+    elif n_commits > 0:
+        statements.append(
+            "GitHub merged-PR sample not loaded—set GITHUB_TOKEN and repository `github_owner` / `github_repo` to include PRs in drift."
+        )
+
     if n_comments:
-        statements.append(f"Sample includes {n_comments} recent PR comment(s) for theme scanning.")
+        statements.append(f"GitHub sample: {n_comments} recent PR comment(s) for theme scanning.")
+
     return statements[:12]
 
 
