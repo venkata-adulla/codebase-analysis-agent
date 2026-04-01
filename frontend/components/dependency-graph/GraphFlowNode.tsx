@@ -54,7 +54,7 @@ function GraphFlowNodeInner({ data, selected }: NodeProps<GraphFlowNodeData>) {
         {isCluster ? <span className="text-primary">cluster</span> : null}
         <span title="risk">R{m.riskScore}</span>
         {churn != null && churn > 0.05 ? (
-          <span title="Temporal churn (last 30d)" className="text-[9px] text-amber-400/90">
+          <span title="Temporal churn (recent sample)" className="text-[9px] text-amber-400/90">
             Δ{Math.round(churn * 100)}%
           </span>
         ) : null}

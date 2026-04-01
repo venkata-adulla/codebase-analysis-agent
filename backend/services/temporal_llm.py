@@ -37,8 +37,10 @@ def enrich_temporal_insights(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     fallback = _fallback_insights(payload)
 
+    churn_map = drift.get("module_churn_window") or drift.get("module_churn_30d") or {}
     compact = {
         "drift_statements": (drift.get("statements") or [])[:10],
+        "module_churn_sample": dict(list(churn_map.items())[:12]) if isinstance(churn_map, dict) else {},
         "heatmap_top": (heat.get("modules") or [])[:12],
         "large_prs": (pr_i.get("large_prs") or [])[:8],
         "hotfixes": (pr_i.get("hotfix_patterns") or [])[:8],

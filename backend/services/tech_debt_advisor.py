@@ -17,6 +17,90 @@ SEVERITY_WEIGHTS = {
     "critical": 10.0,
 }
 
+# Human-readable breakdown for the tech-debt UI ("How this score was computed").
+CATEGORY_COMPUTATION: Dict[str, Dict[str, Any]] = {
+    "code_quality": {
+        "feeds": (
+            "Static analysis over parsed code elements (functions, classes, methods). "
+            "Issues include long functions, high complexity, duplication, deep nesting, magic numbers, "
+            "commented-out code, and similar maintainability findings."
+        ),
+        "steps": [
+            "Each finding in this category becomes one debt item with a severity (low → critical) and an impact_score (0–1).",
+            "Per item contribution = severity_weight × impact_score. Severity weights: low 1.0, medium 2.5, high 5.0, critical 10.0.",
+            "Sum those contributions, then divide by (number of items in this category × 10) and multiply by 100. Cap at 100.",
+            "This normalizes so more numerous or more severe issues together push the category score toward 100 (higher = more debt).",
+        ],
+        "no_issues": (
+            "If there are zero debt items in this category, the score may instead be a small provisional value (2–6) "
+            "from analysis coverage confidence, not from issues."
+        ),
+    },
+    "architecture": {
+        "feeds": (
+            "Service inventory and dependency graph context (modules, edges, layering). "
+            "Issues include coupling, cycles, dependency direction, and structural risks inferred from the graph."
+        ),
+        "steps": [
+            "Same aggregation as other categories: each architecture finding is one item with severity and impact_score.",
+            "category_score = sum(severity_weight × impact_score) / (item_count × 10) × 100, capped at 100.",
+        ],
+        "no_issues": (
+            "With no issues, a provisional score may reflect confidence that services and dependency data were available."
+        ),
+    },
+    "dependency": {
+        "feeds": (
+            "Static dependency manifests (e.g. requirements.txt, package.json, pyproject.toml) and known "
+            "vulnerability or pinning problems (unpinned, wildcard, or advisory-linked versions)."
+        ),
+        "steps": [
+            "Each manifest or dependency-level finding is one item; severity and impact drive the same weighted sum.",
+            "category_score = sum(severity_weight × impact_score) / (item_count × 10) × 100, capped at 100.",
+        ],
+        "no_issues": (
+            "With no findings, a small provisional score may reflect medium default coverage for manifest scanning."
+        ),
+    },
+    "documentation": {
+        "feeds": (
+            "Heuristic checks for repository docs (e.g. README presence) and missing or thin Python docstrings on public APIs."
+        ),
+        "steps": [
+            "Each documentation issue is one item; weighted and normalized like other categories.",
+            "category_score = sum(severity_weight × impact_score) / (item_count × 10) × 100, capped at 100.",
+        ],
+        "no_issues": (
+            "If no doc issues are reported, a provisional score may still appear from default coverage confidence."
+        ),
+    },
+    "test_coverage": {
+        "feeds": (
+            "Heuristic signals from test file layout and optional coverage artifacts (e.g. coverage reports) when present."
+        ),
+        "steps": [
+            "Each test-coverage-related finding is one item; same severity × impact normalization and 0–100 cap.",
+        ],
+        "no_issues": (
+            "With no findings, a small provisional score may reflect that test heuristics ran but did not flag issues."
+        ),
+    },
+    "performance": {
+        "feeds": "Performance-related debt items when the analyzers emit them for this category.",
+        "steps": [
+            "Same formula: weighted sum of items normalized by count × 10, capped at 100.",
+        ],
+        "no_issues": "Often no provisional score unless coverage metadata is defined for this category.",
+    },
+    "security": {
+        "feeds": "Security-related debt items when classified under this category.",
+        "steps": [
+            "Same formula: weighted sum of items normalized by count × 10, capped at 100.",
+        ],
+        "no_issues": "Often 0 when no security items are recorded.",
+    },
+}
+
 
 def build_score_explanation() -> Dict[str, Any]:
     return {
@@ -31,6 +115,7 @@ def build_score_explanation() -> Dict[str, Any]:
         ),
         "severity_weights": SEVERITY_WEIGHTS,
         "overall_weights": OVERALL_SCORE_WEIGHTS,
+        "category_computation": CATEGORY_COMPUTATION,
         "notes": [
             "Each debt item contributes more when its severity and impact score are higher.",
             "Category scores are normalized to a 0-100 scale independently before the weighted overall score is calculated.",

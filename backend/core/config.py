@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     git_clone_depth: int = 1
     # Temporal analysis deepens shallow clones automatically. 0 = full unshallow.
     temporal_fetch_depth: int = 200
+    # Temporal UI: default sample sizes (fast load). API query params can override.
+    temporal_sample_max_commits: int = 10
+    temporal_sample_max_prs: int = 10
+    temporal_sample_max_comments: int = 10
     
     # Agent Configuration
     agent_max_iterations: int = 100

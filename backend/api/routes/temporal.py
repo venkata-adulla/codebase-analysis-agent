@@ -75,7 +75,9 @@ async def get_temporal_data(
     until: Optional[str] = Query(None, description="ISO8601 end (default: now)"),
     author: Optional[str] = Query(None, description="Filter commits by author substring"),
     module: Optional[str] = Query(None, description="Service UUID to filter commits touching it"),
-    max_commits: int = Query(500, ge=50, le=2000),
+    max_commits: int = Query(10, ge=1, le=500),
+    max_prs: int = Query(10, ge=1, le=100),
+    max_comments: int = Query(10, ge=1, le=100),
     refresh: bool = Query(False, description="Bypass cache"),
     db: Session = Depends(get_db),
     api_key: bool = Depends(verify_api_key),
@@ -86,7 +88,10 @@ async def get_temporal_data(
     since_dt = _parse_dt(since)
     until_dt = _parse_dt(until)
 
-    cache_parts = f"{repoId}|{since or ''}|{until or ''}|{author or ''}|{module or ''}|{max_commits}"
+    cache_parts = (
+        f"{repoId}|{since or ''}|{until or ''}|{author or ''}|{module or ''}|"
+        f"{max_commits}|{max_prs}|{max_comments}"
+    )
     ck = _cache_key(cache_parts)
 
     if not refresh:
@@ -104,6 +109,8 @@ async def get_temporal_data(
             author=author,
             module_service_id=module,
             max_commits=max_commits,
+            max_prs=max_prs,
+            max_comments=max_comments,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

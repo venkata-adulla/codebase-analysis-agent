@@ -39,10 +39,22 @@ type TemporalResponse = {
   timeline: TimelineEvent[]
   drift_metrics: {
     statements: string[]
-    module_churn_30d: Record<string, number>
+    module_churn_30d?: Record<string, number>
+    module_churn_window?: Record<string, number>
     commits_in_window?: number
+    prs_in_window?: number
+    comments_in_window?: number
+    sample_limits?: { max_commits: number; max_prs: number; max_comments: number }
   }
-  heatmap: { modules: { service_id: string; name: string; intensity: number; change_count_30d: number }[] }
+  heatmap: {
+    modules: {
+      service_id: string
+      name: string
+      intensity: number
+      change_count_30d?: number
+      change_count_window?: number
+    }[]
+  }
   pr_insights: {
     large_prs: { number: number; title: string; changed_files: number; lines: number }[]
     hotfix_patterns: { number: number; title: string }[]
@@ -66,7 +78,8 @@ type TemporalResponse = {
     service_id: string
     name: string
     fan_in_out: number
-    commits_30d_touching: number
+    commits_30d_touching?: number
+    commits_window_touching?: number
     risk_note: string
     risk_level: string
   }[]
@@ -78,8 +91,18 @@ type TemporalResponse = {
   }
   debug?: {
     commits_processed?: number
+    prs_loaded?: number
+    comments_loaded?: number
     time_range?: { since?: string | null; until?: string | null; mode?: string; note?: string }
   }
+}
+
+function heatmapTouches(m: { change_count_window?: number; change_count_30d?: number }): number {
+  return m.change_count_window ?? m.change_count_30d ?? 0
+}
+
+function impactTouches(r: { commits_window_touching?: number; commits_30d_touching?: number }): number {
+  return r.commits_window_touching ?? r.commits_30d_touching ?? 0
 }
 
 const apiKey = () => process.env.NEXT_PUBLIC_API_KEY || 'dev-local-key'
@@ -153,7 +176,9 @@ export function TemporalClient() {
     if (until) p.set('until', dayEndIso(until))
     if (author.trim()) p.set('author', author.trim())
     if (moduleId.trim()) p.set('module', moduleId.trim())
-    p.set('max_commits', '600')
+    p.set('max_commits', '10')
+    p.set('max_prs', '10')
+    p.set('max_comments', '10')
     return p
   }, [repoId, since, until, author, moduleId])
 
@@ -193,7 +218,7 @@ export function TemporalClient() {
     <div className="space-y-8">
       <PageHeader
         title="Temporal view"
-        description="Drift analysis over time: commits, merged PRs, module churn, and risk signals — with optional heatmap overlay on the dependency graph."
+        description="Loads the 10 most recent sampled commits, merged PRs, and PR comments per request. Drift and heatmap reflect that sample only — optional heatmap overlay on the dependency graph."
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
@@ -241,12 +266,12 @@ export function TemporalClient() {
                   if (data.heatmap?.modules?.length) {
                     sections.push({
                       name: 'Heatmap modules',
-                      headers: ['service_id', 'name', 'intensity', 'change_count_30d'],
+                      headers: ['service_id', 'name', 'intensity', 'change_count_sample'],
                       rows: data.heatmap.modules.map((m) => [
                         m.service_id,
                         m.name,
                         m.intensity,
-                        m.change_count_30d,
+                        heatmapTouches(m),
                       ]),
                     })
                   }
@@ -257,7 +282,7 @@ export function TemporalClient() {
                         'service_id',
                         'name',
                         'fan_in_out',
-                        'commits_30d_touching',
+                        'commits_sample_touching',
                         'risk_level',
                         'risk_note',
                       ],
@@ -265,7 +290,7 @@ export function TemporalClient() {
                         r.service_id,
                         r.name,
                         r.fan_in_out,
-                        r.commits_30d_touching,
+                        impactTouches(r),
                         r.risk_level,
                         r.risk_note,
                       ]),
@@ -361,16 +386,20 @@ export function TemporalClient() {
             <p className="text-[11px] text-muted-foreground">
               Window: {data.debug.time_range.since ?? '—'} → {data.debug.time_range.until ?? '—'}
               {data.debug.time_range.mode ? ` · ${data.debug.time_range.mode}` : ''}
-              {data.debug.time_range.note ? ` — ${data.debug.time_range.note}` : ''} · Commits processed:{' '}
-              {data.debug.commits_processed ?? '—'}
+              {data.debug.time_range.note ? ` — ${data.debug.time_range.note}` : ''} · Commits:{' '}
+              {data.debug.commits_processed ?? '—'} · PRs: {data.debug.prs_loaded ?? '—'} · Comments:{' '}
+              {data.debug.comments_loaded ?? '—'} · Sample caps:{' '}
+              {data.drift_metrics?.sample_limits
+                ? `${data.drift_metrics.sample_limits.max_commits}/${data.drift_metrics.sample_limits.max_prs}/${data.drift_metrics.sample_limits.max_comments}`
+                : '10/10/10'}
             </p>
           ) : null}
           <MetricExplainer
             title="How to read temporal metrics"
             points={[
-              'Intensity % is recent churn for a module in the selected window (relative to the busiest module).',
-              'Risk level in impact/churn combines dependency connectivity with recent code touches.',
-              'Drift statements highlight unusual change patterns, not guaranteed defects.',
+              'Intensity is relative churn within the sampled commits (10 by default), not a full repo history.',
+              'Drift statements and heatmap use only those sampled commits plus up to 10 merged PRs and 10 PR comments.',
+              'Risk level combines dependency graph connectivity with touches in the sampled commit window.',
             ]}
           />
 
@@ -488,7 +517,7 @@ export function TemporalClient() {
                 </Button>
               </div>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Red / amber rings = higher recent churn (last 30d in window). Stable modules stay cool-toned.
+                Red / amber rings = higher churn within the sampled commits. Stable modules stay cool-toned.
               </p>
               <ul className="mt-3 max-h-[320px] space-y-2 overflow-y-auto">
                 {(data.heatmap?.modules || []).map((m) => (
@@ -507,7 +536,7 @@ export function TemporalClient() {
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-medium">{m.name}</div>
                       <div className="text-[10px] text-muted-foreground">
-                        {m.change_count_30d} touches · {Math.round(m.intensity * 100)}% intensity
+                        {heatmapTouches(m)} touches · {Math.round(m.intensity * 100)}% intensity
                       </div>
                     </div>
                   </li>
@@ -554,7 +583,7 @@ export function TemporalClient() {
                 <div>
                   <p className="font-medium text-foreground">Recent merged PRs</p>
                   <ul className="mt-1 space-y-2 text-muted-foreground">
-                    {(data.pr_insights?.recent_prs || []).slice(0, 8).map((p) => (
+                    {(data.pr_insights?.recent_prs || []).slice(0, 10).map((p) => (
                       <li key={p.number} className="rounded-md border border-border/50 bg-background/50 px-2 py-1.5">
                         <p className="font-medium text-foreground">
                           #{p.number} {p.title}
@@ -605,7 +634,7 @@ export function TemporalClient() {
                     <tr className="text-muted-foreground">
                       <th className="py-1 pr-2">Module</th>
                       <th className="py-1 pr-2">Graph deg.</th>
-                      <th className="py-1 pr-2">30d touches</th>
+                      <th className="py-1 pr-2">Sample touches</th>
                       <th className="py-1">Risk</th>
                     </tr>
                   </thead>
@@ -614,7 +643,7 @@ export function TemporalClient() {
                       <tr key={row.service_id} className="border-t border-border/40">
                         <td className="py-1.5 pr-2 font-medium text-foreground">{row.name}</td>
                         <td className="py-1.5 pr-2">{row.fan_in_out}</td>
-                        <td className="py-1.5 pr-2">{row.commits_30d_touching}</td>
+                        <td className="py-1.5 pr-2">{impactTouches(row)}</td>
                         <td className="py-1.5 capitalize text-muted-foreground">{row.risk_level}</td>
                       </tr>
                     ))}

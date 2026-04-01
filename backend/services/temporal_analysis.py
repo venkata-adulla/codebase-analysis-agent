@@ -107,6 +107,41 @@ def _window_churn(
     return dict(churn)
 
 
+def _churn_from_commit_list(
+    commits: List[CommitRecord],
+    services: List[Dict[str, Any]],
+    file_service_cache: Optional[Dict[str, Optional[str]]] = None,
+) -> Dict[str, int]:
+    """Module touch counts across the given commits only (temporal sample window)."""
+    churn: Dict[str, int] = defaultdict(int)
+    for c in commits:
+        mods, _ = _commit_modules(c, services, file_service_cache)
+        for m in mods:
+            churn[m] += 1
+    return dict(churn)
+
+
+def _split_commit_churn_halves(
+    commits: List[CommitRecord],
+    services: List[Dict[str, Any]],
+    file_service_cache: Optional[Dict[str, Optional[str]]] = None,
+) -> Tuple[Dict[str, int], Dict[str, int]]:
+    """Older half vs newer half (by commit date) for drift acceleration hints."""
+    if not commits:
+        return {}, {}
+    ordered = sorted(commits, key=lambda c: c.committed_at)
+    n = len(ordered)
+    if n == 1:
+        return {}, _churn_from_commit_list(ordered, services, file_service_cache)
+    mid = n // 2
+    first = ordered[:mid]
+    second = ordered[mid:]
+    return (
+        _churn_from_commit_list(first, services, file_service_cache),
+        _churn_from_commit_list(second, services, file_service_cache),
+    )
+
+
 def _graph_degrees(repository_id: str) -> Dict[str, int]:
     out: Dict[str, int] = {}
     try:
@@ -130,9 +165,12 @@ def build_timeline_events(
     commits: List[CommitRecord],
     prs: List[PRRecord],
     services: List[Dict[str, Any]],
-    max_events: int = 400,
+    max_commit_events: int = 10,
+    max_pr_events: int = 10,
     file_service_cache: Optional[Dict[str, Optional[str]]] = None,
 ) -> List[Dict[str, Any]]:
+    commits = commits[:max_commit_events]
+    prs = prs[:max_pr_events]
     commit_events: List[Dict[str, Any]] = []
     pr_events: List[Dict[str, Any]] = []
     names = _service_name_by_id(services)
@@ -184,17 +222,10 @@ def build_timeline_events(
             }
         )
 
-    # Preserve PR visibility on commit-heavy repos by reserving part of the timeline budget.
-    commit_limit = max_events if not pr_events else max(120, int(max_events * 0.75))
-    pr_limit = max(40, max_events - commit_limit) if pr_events else 0
-
-    events = [
-        *commit_events[:commit_limit],
-        *pr_events[:pr_limit],
-    ]
+    events = [*commit_events, *pr_events]
     events = [e for e in events if e.get("timestamp")]
     events.sort(key=lambda x: x["timestamp"], reverse=True)
-    return events[:max_events]
+    return events[: max_commit_events + max_pr_events]
 
 
 def _drift_statements(
@@ -220,6 +251,42 @@ def _drift_statements(
             statements.append(
                 f"Churn increased sharply for «{names.get(sid, sid)}» vs the prior window ({prev} → {n})."
             )
+    return statements[:12]
+
+
+def _drift_statements_sample(
+    churn_full: Dict[str, int],
+    churn_first: Dict[str, int],
+    churn_second: Dict[str, int],
+    degrees: Dict[str, int],
+    names: Dict[str, str],
+    n_commits: int,
+    n_prs: int,
+    n_comments: int,
+) -> List[str]:
+    """Drift lines scoped to the sampled commits / PRs / comments only."""
+    statements: List[str] = []
+    for sid, n in sorted(churn_full.items(), key=lambda x: -x[1]):
+        prev = churn_first.get(sid, 0)
+        now = churn_second.get(sid, 0)
+        deg = degrees.get(sid, 0)
+        if n >= 2 and deg >= 6:
+            statements.append(
+                f"Module «{names.get(sid, sid)}» is highly connected (graph degree ~{deg}) and "
+                f"appears in {n}/{n_commits} sampled commits — review coupling risk."
+            )
+        elif n >= 3:
+            statements.append(
+                f"Module «{names.get(sid, sid)}» is touched in {n}/{n_commits} sampled commits."
+            )
+        elif prev > 0 and now > prev and now >= 2:
+            statements.append(
+                f"Churn rose for «{names.get(sid, sid)}» in the newer half of the sample ({prev} → {now})."
+            )
+    if n_prs:
+        statements.append(f"Sample includes {n_prs} recent merged PR(s) (newest first).")
+    if n_comments:
+        statements.append(f"Sample includes {n_comments} recent PR comment(s) for theme scanning.")
     return statements[:12]
 
 
@@ -259,10 +326,10 @@ def _pr_insights(prs: List[PRRecord]) -> Dict[str, Any]:
         )
 
     return {
-        "large_prs": large[:15],
-        "hotfix_patterns": hotfixes[:15],
+        "large_prs": large[:10],
+        "hotfix_patterns": hotfixes[:10],
         "repeat_files": [],  # filled from commits if needed
-        "recent_prs": recent[:20],
+        "recent_prs": recent[:10],
     }
 
 
@@ -273,7 +340,7 @@ def _comment_intelligence(comment_samples: List[Dict[str, Any]]) -> Dict[str, An
         body = c.get("body_preview") or ""
         if bug_kw.search(body):
             themes.append(f"PR #{c.get('pr')}: discussion mentions defects or fixes.")
-    return {"themes": themes[:10], "sampled": comment_samples[:25]}
+    return {"themes": themes[:10], "sampled": comment_samples[:10]}
 
 
 def _impact_evolution(
@@ -294,15 +361,16 @@ def _impact_evolution(
         elif fan >= 5 and ch >= 3:
             risk = "medium"
         note = (
-            f"Graph connectivity ~{fan}; {ch} commit touches in last 30d."
+            f"Graph connectivity ~{fan}; {ch} commit touch(es) in sampled window."
             if ch or fan
-            else "Limited recent activity in window."
+            else "No module touches in sampled commits."
         )
         rows.append(
             {
                 "service_id": sid,
                 "name": names.get(sid, sid),
                 "fan_in_out": fan,
+                "commits_window_touching": ch,
                 "commits_30d_touching": ch,
                 "risk_note": note,
                 "risk_level": risk,
@@ -318,10 +386,13 @@ def _structured_insights(
     churn_prev: Dict[str, int],
     degrees: Dict[str, int],
     pr_block: Dict[str, Any],
+    *,
+    sample_window: bool = False,
 ) -> List[Dict[str, str]]:
     """Build compact, UI-friendly insight cards from temporal signals."""
     names = _service_name_by_id(services)
     items: List[Dict[str, str]] = []
+    min_spike = 2 if sample_window else 3
 
     # 1) Structural risk: highly connected modules
     high_degree = sorted(
@@ -343,16 +414,17 @@ def _structured_insights(
     growth_candidates: List[Tuple[str, int, int]] = []
     for sid, now in churn_30.items():
         prev = churn_prev.get(sid, 0)
-        if now >= 3 and (prev == 0 or now >= int(prev * 1.8)):
+        if now >= min_spike and (prev == 0 or now >= max(2, int(prev * 1.8))):
             growth_candidates.append((sid, prev, now))
     growth_candidates.sort(key=lambda x: x[2], reverse=True)
     if growth_candidates:
         sid, prev, now = growth_candidates[0]
+        win = "sampled commit window" if sample_window else "last 30-day window"
         items.append(
             {
                 "severity": "high" if now >= 8 else "medium",
                 "title": "Churn spike detected",
-                "detail": f"{names.get(sid, sid)} increased from {prev} to {now} touches in the last 30-day window.",
+                "detail": f"{names.get(sid, sid)} increased from {prev} to {now} touches in the {win}.",
             }
         )
 
@@ -392,7 +464,7 @@ def _structured_insights(
             {
                 "severity": "low",
                 "title": "No strong temporal risk signals",
-                "detail": "Recent churn, PR patterns, and graph connectivity look stable for the selected period.",
+                "detail": "For the sampled commits/PRs, churn and graph signals look stable.",
             }
         )
 
@@ -418,6 +490,7 @@ def build_heatmap(
                 "service_id": sid,
                 "name": names.get(sid, sid),
                 "intensity": round(intensity, 4),
+                "change_count_window": cnt,
                 "change_count_30d": cnt,
                 "stable": cnt == 0,
             }
@@ -434,8 +507,14 @@ def run_temporal_analysis(
     until: Optional[datetime] = None,
     author: Optional[str] = None,
     module_service_id: Optional[str] = None,
-    max_commits: int = 500,
+    max_commits: int = 10,
+    max_prs: int = 10,
+    max_comments: int = 10,
 ) -> Dict[str, Any]:
+    max_commits = min(max(1, max_commits), 500)
+    max_prs = min(max(1, max_prs), 100)
+    max_comments = min(max(1, max_comments), 100)
+
     resolved = resolve_repository_id(db, repository_id) or repository_id
     repo_row = db.query(Repository).filter(Repository.id == resolved).first()
     if not repo_row:
@@ -480,6 +559,7 @@ def run_temporal_analysis(
         max_count=max_commits,
         author_filter=author,
     )
+    commits = commits[:max_commits]
 
     owner, gh_repo = repo_row.github_owner, repo_row.github_repo
     prs, comment_samples = fetch_pull_requests(
@@ -487,7 +567,8 @@ def run_temporal_analysis(
         gh_repo or "",
         since=pr_since,
         until=pr_until,
-        max_prs=60,
+        max_prs=max_prs,
+        max_comments=max_comments,
     )
 
     if module_service_id:
@@ -496,20 +577,35 @@ def run_temporal_analysis(
             c
             for c in commits
             if sid in _commit_modules(c, services, file_service_cache)[0]
-        ]
+        ][:max_commits]
 
-    churn_end = datetime.now(timezone.utc)
-    churn_30 = _window_churn(commits, services, 30, churn_end, file_service_cache)
-    churn_prev = _window_churn(commits, services, 30, churn_end - timedelta(days=30), file_service_cache)
+    churn_full = _churn_from_commit_list(commits, services, file_service_cache)
+    churn_first, churn_second = _split_commit_churn_halves(commits, services, file_service_cache)
     degrees = _graph_degrees(resolved)
     names = _service_name_by_id(services)
 
-    drift_statements = _drift_statements(churn_30, churn_prev, degrees, names)
-    heatmap = build_heatmap(churn_30, services)
-    timeline = build_timeline_events(commits, prs, services, file_service_cache=file_service_cache)
+    drift_statements = _drift_statements_sample(
+        churn_full,
+        churn_first,
+        churn_second,
+        degrees,
+        names,
+        len(commits),
+        len(prs),
+        len(comment_samples),
+    )
+    heatmap = build_heatmap(churn_full, services)
+    timeline = build_timeline_events(
+        commits,
+        prs,
+        services,
+        max_commit_events=max_commits,
+        max_pr_events=max_prs,
+        file_service_cache=file_service_cache,
+    )
     pr_block = _pr_insights(prs)
     comments_block = _comment_intelligence(comment_samples)
-    impact = _impact_evolution(services, churn_30, degrees)
+    impact = _impact_evolution(services, churn_full, degrees)
 
     # Repeat file analysis (commits)
     file_hits: Counter[str] = Counter()
@@ -517,17 +613,30 @@ def run_temporal_analysis(
         for f in c.files_changed[:200]:
             file_hits[f] += 1
     repeat_files = [
-        {"path": p, "commits": n} for p, n in file_hits.most_common(15) if n >= 3
+        {"path": p, "commits": n} for p, n in file_hits.most_common(10) if n >= 2
     ]
     pr_block["repeat_files"] = repeat_files
-    structured = _structured_insights(services, churn_30, churn_prev, degrees, pr_block)
+    structured = _structured_insights(
+        services,
+        churn_full,
+        churn_first,
+        degrees,
+        pr_block,
+        sample_window=True,
+    )
 
     drift_metrics: Dict[str, Any] = {
-        "module_churn_30d": churn_30,
-        "module_churn_prev_30d": churn_prev,
+        "module_churn_window": churn_full,
+        "module_churn_30d": churn_full,
+        "module_churn_first_half": churn_first,
+        "module_churn_second_half": churn_second,
+        "module_churn_prev_30d": churn_first,
         "statements": drift_statements,
         "dependency_change_events": [],
         "commits_in_window": len(commits),
+        "prs_in_window": len(prs),
+        "comments_in_window": len(comment_samples),
+        "sample_limits": {"max_commits": max_commits, "max_prs": max_prs, "max_comments": max_comments},
     }
 
     if use_git_date_filter and since_eff is not None and until_eff is not None:
@@ -542,7 +651,10 @@ def run_temporal_analysis(
             "since": min(ctimes).isoformat(),
             "until": max(ctimes).isoformat(),
             "mode": "recent_commits",
-            "note": f"Newest {len(commits)} commit(s); no since/until filter (avoids empty history on older repos).",
+            "note": (
+                f"Newest {len(commits)} sampled commit(s); drift/heatmap use this sample only. "
+                "No since/until filter (avoids empty history on older repos)."
+            ),
         }
     else:
         time_range = {
@@ -555,6 +667,7 @@ def run_temporal_analysis(
     debug = {
         "commits_processed": len(commits),
         "prs_loaded": len(prs),
+        "comments_loaded": len(comment_samples),
         "modules_mapped": len(services),
         "time_range": time_range,
     }

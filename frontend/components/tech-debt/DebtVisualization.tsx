@@ -76,6 +76,11 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
   const scoreExplanation = metrics?.score_explanation || report?.score_explanation || {}
   const overallWeights = scoreExplanation?.overall_weights || {}
   const severityWeights = scoreExplanation?.severity_weights || {}
+  const categoryComputation = (scoreExplanation?.category_computation || {}) as Record<
+    string,
+    { feeds?: string; steps?: string[]; no_issues?: string }
+  >
+  const itemsByCategory = metrics?.items_by_category || {}
 
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -296,15 +301,71 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
                 ) : null}
                 <details className="mt-1 rounded-md border border-border/40 bg-background/40 px-2 py-1 text-[11px] text-muted-foreground">
                   <summary className="cursor-pointer">How this score was computed</summary>
-                  <p className="mt-1">
-                    Raw issue-based score: <span className="text-foreground">{item.rawScore.toFixed(1)}</span>
-                    {item.rawScore === 0 ? ' (no issues detected in this category)' : ''}.
-                  </p>
-                  {item.rawScore === 0 && item.score > 0 ? (
-                    <p>
-                      Provisional score from coverage confidence: <span className="text-foreground">{item.score.toFixed(1)}</span>.
-                    </p>
-                  ) : null}
+                  <div className="mt-2 space-y-2">
+                    {categoryComputation[item.rawName] ? (
+                      <>
+                        <p className="text-foreground/90">
+                          <span className="font-medium text-foreground">What this number reflects:</span>{' '}
+                          {categoryComputation[item.rawName].feeds}
+                        </p>
+                        {Array.isArray(categoryComputation[item.rawName].steps) &&
+                        categoryComputation[item.rawName].steps!.length > 0 ? (
+                          <ol className="list-decimal space-y-1 pl-4">
+                            {categoryComputation[item.rawName].steps!.map((step, idx) => (
+                              <li key={idx}>{step}</li>
+                            ))}
+                          </ol>
+                        ) : null}
+                        {typeof itemsByCategory[item.rawName] === 'number' ? (
+                          <p>
+                            <span className="font-medium text-foreground">This run:</span>{' '}
+                            {(itemsByCategory[item.rawName] as number) === 0
+                              ? 'No debt items were recorded in this category.'
+                              : `${itemsByCategory[item.rawName] as number} debt item(s) contributed to the weighted sum before normalization.`}
+                          </p>
+                        ) : null}
+                        <p>
+                          <span className="font-medium text-foreground">Issue-based category score (0–100):</span>{' '}
+                          <span className="text-foreground">{item.rawScore.toFixed(1)}</span>
+                          {item.rawScore === 0
+                            ? ' — no issues in this category, so the weighted formula above evaluates to 0.'
+                            : ' — from sum(severity_weight × impact_score) ÷ (item_count × 10) × 100, capped at 100.'}
+                        </p>
+                        {item.rawScore === 0 && item.score > 0 && categoryComputation[item.rawName]?.no_issues ? (
+                          <p>
+                            <span className="font-medium text-foreground">Displayed score {item.score.toFixed(1)}:</span>{' '}
+                            {categoryComputation[item.rawName].no_issues}
+                          </p>
+                        ) : null}
+                        {item.rawScore === 0 && item.score > 0 && !categoryComputation[item.rawName]?.no_issues ? (
+                          <p>
+                            Provisional score from analysis coverage confidence:{' '}
+                            <span className="text-foreground">{item.score.toFixed(1)}</span> (not from issue weighting).
+                          </p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <p>
+                          <span className="font-medium text-foreground">Category formula:</span>{' '}
+                          {String(
+                            scoreExplanation.category_formula ||
+                              'sum(severity_weight × impact_score) / (item_count × 10) × 100'
+                          )}
+                        </p>
+                        <p>
+                          Raw issue-based score: <span className="text-foreground">{item.rawScore.toFixed(1)}</span>
+                          {item.rawScore === 0 ? ' (no issues in this category)' : ''}.
+                        </p>
+                        {item.rawScore === 0 && item.score > 0 ? (
+                          <p>
+                            Provisional score from coverage:{' '}
+                            <span className="text-foreground">{item.score.toFixed(1)}</span>.
+                          </p>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
                 </details>
                 {item.rawScore === 0 && item.score > 0 ? (
                   <p className="mt-1 text-xs text-muted-foreground">

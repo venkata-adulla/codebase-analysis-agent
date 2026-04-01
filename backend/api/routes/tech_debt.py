@@ -18,6 +18,14 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 
 
+def _score_explanation_for_response(stored: Any) -> Dict[str, Any]:
+    """Merge persisted explanation with current defaults so UI always gets e.g. category_computation."""
+    fresh = build_score_explanation()
+    if not isinstance(stored, dict) or not stored:
+        return fresh
+    return {**fresh, **stored, "category_computation": fresh.get("category_computation") or {}}
+
+
 class TechDebtAnalysisRequest(BaseModel):
     repository_id: str
 
@@ -191,7 +199,9 @@ async def get_debt_report(
             "test_coverage": report.test_coverage_score,
         },
         "assessment_coverage": (report.report_data or {}).get("assessment_coverage") or {},
-        "score_explanation": (report.report_data or {}).get("score_explanation") or build_score_explanation(),
+        "score_explanation": _score_explanation_for_response(
+            (report.report_data or {}).get("score_explanation")
+        ),
         "items_by_category": report.items_by_category,
         "items_by_severity": report.items_by_severity,
         "debt_items": [_serialize_debt_item(item) for item in items],
@@ -262,7 +272,9 @@ async def get_debt_metrics(
             "test_coverage": report.test_coverage_score,
         },
         "assessment_coverage": (report.report_data or {}).get("assessment_coverage") or {},
-        "score_explanation": (report.report_data or {}).get("score_explanation") or build_score_explanation(),
+        "score_explanation": _score_explanation_for_response(
+            (report.report_data or {}).get("score_explanation")
+        ),
         "items_by_category": report.items_by_category,
         "items_by_severity": report.items_by_severity,
     }

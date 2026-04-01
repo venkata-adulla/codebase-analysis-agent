@@ -49,7 +49,8 @@ def fetch_pull_requests(
     *,
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
-    max_prs: int = 80,
+    max_prs: int = 10,
+    max_comments: int = 10,
 ) -> tuple[List[PRRecord], List[Dict[str, Any]]]:
     """
     Returns (merged_prs, comment_insights_sample).
@@ -82,7 +83,7 @@ def fetch_pull_requests(
 
     count = 0
     for pr in pulls:
-        if count >= max_prs * 2:
+        if count >= max_prs * 3:
             break
         if not pr.merged:
             continue
@@ -129,11 +130,15 @@ def fetch_pull_requests(
         if len(prs) >= max_prs:
             break
 
-    # Optional: sample issue + review comments on recent PRs for themes and UI detail
-    for pr_rec in prs[:12]:
+    # Sample comments up to max_comments (newest PRs first; minimal API calls)
+    for pr_rec in prs:
+        if len(comment_samples) >= max_comments:
+            break
         try:
             pr = repo.get_pull(pr_rec.number)
-            for c in list(pr.get_issue_comments())[:8]:
+            for c in list(pr.get_issue_comments()):
+                if len(comment_samples) >= max_comments:
+                    break
                 comment_samples.append(
                     {
                         "pr": pr_rec.number,
@@ -144,7 +149,9 @@ def fetch_pull_requests(
                         "created_at": c.created_at.isoformat() if c.created_at else None,
                     }
                 )
-            for c in list(pr.get_review_comments())[:8]:
+            for c in list(pr.get_review_comments()):
+                if len(comment_samples) >= max_comments:
+                    break
                 comment_samples.append(
                     {
                         "pr": pr_rec.number,
@@ -161,6 +168,6 @@ def fetch_pull_requests(
         key=lambda x: str(x.get("created_at") or ""),
         reverse=True,
     )
-    comment_samples = comment_samples[:40]
+    comment_samples = comment_samples[:max_comments]
     logger.info("temporal_github: fetched %d merged PRs", len(prs))
     return prs, comment_samples

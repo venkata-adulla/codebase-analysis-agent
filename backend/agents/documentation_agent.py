@@ -273,6 +273,65 @@ def _display_service_title(name: str) -> str:
     return n.replace("_", " ")
 
 
+def _effective_source_file_count(
+    service: Dict[str, Any], service_elements: List[Dict[str, Any]]
+) -> int:
+    """
+    Count distinct files from parsed symbols; if extraction is empty but the service
+    points at a single source file, treat as 1 so copy does not say «0 files».
+    """
+    paths = {
+        str(e.get("file_path") or "")
+        for e in service_elements
+        if (e.get("file_path") or "").strip()
+    }
+    n = len(paths)
+    if n > 0:
+        return n
+    raw = (service.get("path") or service.get("file_path") or "").strip().replace("\\", "/")
+    if raw and not raw.endswith("/"):
+        lower = raw.lower()
+        if any(
+            lower.endswith(ext)
+            for ext in (
+                ".py",
+                ".pyi",
+                ".js",
+                ".jsx",
+                ".ts",
+                ".tsx",
+                ".java",
+                ".go",
+                ".rs",
+                ".rb",
+                ".php",
+                ".cs",
+            )
+        ):
+            return 1
+    return 0
+
+
+def _structural_doc_bundle(
+    service: Dict[str, Any],
+    service_elements: List[Dict[str, Any]],
+    dependencies: List[Dict[str, Any]],
+    *,
+    note: str,
+    source: str,
+) -> Dict[str, Any]:
+    """Structural summary + markdown when LLM is skipped; *service_elements* should come from gather."""
+    return {
+        "description": _build_structural_description(service, service_elements, dependencies),
+        "summary": _normalize_inventory_summary(
+            _build_structural_summary(service, service_elements, dependencies)
+        ),
+        "language": service.get("language", "unknown"),
+        "note": note,
+        "source": source,
+    }
+
+
 def _build_structural_description(
     service: Dict[str, Any],
     service_elements: List[Dict[str, Any]],
@@ -304,14 +363,7 @@ def _build_structural_description(
     outbound = [d for d in dependencies if d.get("source") == service.get("id")]
     inbound = [d for d in dependencies if d.get("target") == service.get("id")]
 
-    unique_paths = sorted(
-        {
-            str(e.get("file_path") or "")
-            for e in service_elements
-            if (e.get("file_path") or "").strip()
-        }
-    )
-    files_count = len(unique_paths)
+    files_count = _effective_source_file_count(service, service_elements)
 
     lines: List[str] = [
         f"# {display} Service Documentation",
@@ -384,6 +436,11 @@ def _build_structural_description(
         comp_lines.append(f"- _… and {len(classes) - 12} more class(es)._")
     if len(functions) > 12:
         comp_lines.append(f"- _… and {len(functions) - 12} more function(s)._")
+    if not comp_lines and private_fns:
+        comp_lines.append(
+            f"- _This module exposes little or no public API in static analysis; **{len(private_fns)}** internal "
+            "symbol(s) (often compatibility, platform, or underscore helpers) were found—typical for `_compat`-style modules._"
+        )
     if not comp_lines:
         comp_lines.append("- _No public classes or functions were extracted; the package may be a thin shim or needs a fresh analysis run._")
     lines.extend(comp_lines)
@@ -449,12 +506,7 @@ def _build_structural_summary(
     outbound = [d for d in dependencies if str(d.get("source") or "") == sid]
     inbound = [d for d in dependencies if str(d.get("target") or "") == sid]
 
-    unique_files = {
-        str(e.get("file_path") or "")
-        for e in service_elements
-        if (e.get("file_path") or "").strip()
-    }
-    files_count = len(unique_files)
+    files_count = _effective_source_file_count(service, service_elements)
     classes_count = len(classes)
     funcs_count = len(functions)
 
@@ -595,26 +647,6 @@ def _llm_priority_score(
     if str(service.get("module_name") or "").strip():
         bonus += 1
     return entry_points + min(3, outbound_count) + min(3, inbound_count) + bonus
-
-
-def _quick_structural_doc(
-    service: Dict[str, Any],
-    dependencies: List[Dict[str, Any]],
-    *,
-    note: str,
-    source: str,
-) -> Dict[str, Any]:
-    """Fast structural doc path with no symbol parsing."""
-    empty: List[Dict[str, Any]] = []
-    return {
-        "description": _build_structural_description(service, empty, dependencies),
-        "summary": _normalize_inventory_summary(
-            _build_structural_summary(service, empty, dependencies)
-        ),
-        "language": service.get("language", "unknown"),
-        "note": note,
-        "source": source,
-    }
 
 
 class DocumentationAgent(BaseAgent):
@@ -836,22 +868,26 @@ class DocumentationAgent(BaseAgent):
         min_signal = int(getattr(settings, "documentation_llm_min_signal", 4) or 4)
         if not self.client:
             logger.info(
-                "Documentation (no LLM) for %s: quick structural path",
+                "Documentation (no LLM) for %s: structural path with symbol gather",
                 service.get("name"),
             )
-            return _quick_structural_doc(
+            els = gather_service_elements(service, code_elements, repository_path)
+            return _structural_doc_bundle(
                 service,
+                els,
                 dependencies,
                 note="OpenAI API key not configured — showing structural analysis",
                 source="structural",
             )
         if llm_allowed_ids is not None and svc_id not in llm_allowed_ids:
             logger.info(
-                "Documentation budget fast-path for %s: outside llm budget; skipping symbol parse",
+                "Documentation budget fast-path for %s: outside LLM budget; structural docs with symbol gather",
                 service.get("name"),
             )
-            return _quick_structural_doc(
+            els = gather_service_elements(service, code_elements, repository_path)
+            return _structural_doc_bundle(
                 service,
+                els,
                 dependencies,
                 note="Used structural documentation fast-path (outside LLM budget)",
                 source="structural_budget_fast_path",
@@ -859,13 +895,15 @@ class DocumentationAgent(BaseAgent):
         cheap_signal = _llm_priority_score(service, len(outbound), len(inbound))
         if cheap_signal < min_signal:
             logger.info(
-                "Documentation fast-path for %s: cheap_signal=%d < min_signal=%d; skipping symbol parse",
+                "Documentation fast-path for %s: cheap_signal=%d < min_signal=%d; structural docs with symbol gather",
                 service.get("name"),
                 cheap_signal,
                 min_signal,
             )
-            return _quick_structural_doc(
+            els = gather_service_elements(service, code_elements, repository_path)
+            return _structural_doc_bundle(
                 service,
+                els,
                 dependencies,
                 note=f"Used structural documentation fast-path (cheap_signal={cheap_signal})",
                 source="structural_cheap_signal_fast_path",
