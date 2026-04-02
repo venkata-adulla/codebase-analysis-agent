@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
@@ -24,7 +25,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${sans.variable} font-sans`}>
         <Providers>
-          <AppShell>{children}</AppShell>
+          <Suspense fallback={<div className="min-h-screen bg-background" />}>
+            <AppShell>{children}</AppShell>
+          </Suspense>
         </Providers>
       </body>
     </html>

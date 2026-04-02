@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -51,26 +52,37 @@ def fetch_pull_requests(
     until: Optional[datetime] = None,
     max_prs: int = 10,
     max_comments: int = 10,
-) -> tuple[List[PRRecord], List[Dict[str, Any]]]:
+    github_token: Optional[str] = None,
+) -> tuple[List[PRRecord], List[Dict[str, Any]], Optional[str]]:
     """
-    Returns (merged_prs, comment_insights_sample).
-    Comment insights: lightweight keyword scan on PR bodies + first issue comments.
+    Returns (merged_prs, comment_insights_sample, skip_reason).
+
+    skip_reason explains why PRs were not loaded (for UI copy); None if GitHub was queried
+    (including when the merged list is simply empty for this window).
     """
-    if not settings.github_token or not owner or not repo_name:
-        logger.info("temporal_github: skipping PRs (no token or owner/repo)")
-        return [], []
+    if not owner or not repo_name:
+        logger.info("temporal_github: skipping PRs (missing owner or repo name)")
+        return [], [], "no_github_coords"
+
+    token = (
+        (github_token or os.environ.get("GITHUB_TOKEN") or settings.github_token or "")
+        .strip()
+    )
+    if not token:
+        logger.info("temporal_github: skipping PRs (no token on server)")
+        return [], [], "no_token"
 
     try:
         from github import Github
     except ImportError:
-        return [], []
+        return [], [], "github_sdk_missing"
 
-    g = Github(settings.github_token, per_page=30)
+    g = Github(token, per_page=30)
     try:
         repo = g.get_repo(f"{owner}/{repo_name}")
     except Exception as exc:
         logger.warning("temporal_github: could not open repo %s/%s: %s", owner, repo_name, exc)
-        return [], []
+        return [], [], "github_api_error"
 
     prs: List[PRRecord] = []
     comment_samples: List[Dict[str, Any]] = []
@@ -79,7 +91,7 @@ def fetch_pull_requests(
         pulls = repo.get_pulls(state="closed", sort="updated", direction="desc")
     except Exception as exc:
         logger.warning("temporal_github: list pulls failed: %s", exc)
-        return [], []
+        return [], [], "github_api_error"
 
     count = 0
     for pr in pulls:
@@ -170,4 +182,4 @@ def fetch_pull_requests(
     )
     comment_samples = comment_samples[:max_comments]
     logger.info("temporal_github: fetched %d merged PRs", len(prs))
-    return prs, comment_samples
+    return prs, comment_samples, None

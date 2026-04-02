@@ -105,6 +105,45 @@ function impactTouches(r: { commits_window_touching?: number; commits_30d_touchi
   return r.commits_window_touching ?? r.commits_30d_touching ?? 0
 }
 
+/**
+ * ``drift_metrics.statements`` mixes methodology, config warnings, and real module signals.
+ * The Drift insights panel should foreground module churn lines, not duplicate AI summary noise.
+ */
+function isTemporalDriftMetaStatement(s: string): boolean {
+  const t = s.trim()
+  if (!t) return true
+  if (/^Drift uses the newest \d+ commit/i.test(t)) return true
+  if (/Sampled commits did not touch paths/i.test(t)) return true
+  if (/Sampled commits did not map to known service modules/i.test(t)) return true
+  if (/Merged PRs are not loaded|GITHUB_TOKEN|Tokens entered only on Analyze/i.test(t)) return true
+  if (/No merged PRs matched the current time filters/i.test(t)) return true
+  if (/No services are in the inventory/i.test(t)) return true
+  if (/none have a stored file path/i.test(t)) return true
+  if (/owner\/name on record/i.test(t)) return true
+  if (/PyGithub is not installed/i.test(t)) return true
+  if (/Could not read merged PRs from GitHub/i.test(t)) return true
+  return false
+}
+
+function temporalDriftSignalStatements(statements: string[]): string[] {
+  return statements.filter((s) => !isTemporalDriftMetaStatement(s))
+}
+
+/** When API statements are only warnings but churn counts exist, derive readable lines. */
+function temporalChurnFallbackLines(data: TemporalResponse): string[] {
+  const churn = data.drift_metrics?.module_churn_window || data.drift_metrics?.module_churn_30d || {}
+  const mods = data.heatmap?.modules || []
+  const nameById = new Map(mods.map((m) => [m.service_id, m.name]))
+  return Object.entries(churn)
+    .filter(([, n]) => Number(n) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 10)
+    .map(
+      ([id, n]) =>
+        `«${nameById.get(id) || id}» — ${n} file→module touch(es) in the sampled commits.`,
+    )
+}
+
 const apiKey = () => process.env.NEXT_PUBLIC_API_KEY || 'dev-local-key'
 
 function withTimeoutSignal(ms: number): AbortSignal {
@@ -553,16 +592,53 @@ export function TemporalClient() {
             {/* Drift */}
             <section className="rounded-xl border border-border bg-card/50 p-4">
               <h2 className="text-sm font-semibold">Drift insights</h2>
-              <ul className="mt-3 space-y-2 text-xs text-muted-foreground">
-                {(data.drift_metrics?.statements || []).map((s, i) => (
-                  <li key={i} className="rounded-lg border border-border/50 bg-background/50 px-2 py-1.5">
-                    {s}
-                  </li>
-                ))}
-              </ul>
-              {!data.drift_metrics?.statements?.length ? (
-                <p className="text-xs text-muted-foreground">No strong drift signals in this window.</p>
-              ) : null}
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                Module-level signals from the sampled commits. Sampling scope and GitHub/PR notes are folded
+                below so this panel stays aligned with the heatmap and impact table.
+              </p>
+              {(() => {
+                const all = data.drift_metrics?.statements || []
+                const signals = temporalDriftSignalStatements(all)
+                const meta = all.filter((s) => isTemporalDriftMetaStatement(s))
+                const fallback = signals.length ? [] : temporalChurnFallbackLines(data)
+                const primary = signals.length ? signals : fallback
+                return (
+                  <>
+                    {primary.length ? (
+                      <ul className="mt-3 space-y-2 text-xs text-foreground/90">
+                        {primary.map((s, i) => (
+                          <li
+                            key={i}
+                            className="rounded-lg border border-primary/20 bg-primary/5 px-2 py-1.5"
+                          >
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        No module-specific drift lines for this sample. Use the heatmap and{' '}
+                        <span className="font-medium text-foreground/80">AI drift summary</span> above; widen the
+                        commit sample or re-run analysis if paths may be out of date.
+                      </p>
+                    )}
+                    {meta.length ? (
+                      <details className="mt-3 rounded-lg border border-border/60 bg-muted/20 text-[11px] text-muted-foreground">
+                        <summary className="cursor-pointer select-none px-2 py-1.5 font-medium text-foreground/80">
+                          Sample scope &amp; data-source notes ({meta.length})
+                        </summary>
+                        <ul className="space-y-1.5 border-t border-border/50 px-2 py-2">
+                          {meta.map((s, i) => (
+                            <li key={i} className="leading-snug">
+                              {s}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : null}
+                  </>
+                )
+              })()}
             </section>
 
             {/* PR insights */}
@@ -628,6 +704,13 @@ export function TemporalClient() {
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="rounded-xl border border-border bg-card/50 p-4">
               <h2 className="text-sm font-semibold">Impact &amp; churn (services)</h2>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                <strong className="font-medium text-foreground/80">Sample touches</strong> = how many
+                commits in the current sample changed files mapped to that service (from git history).
+                Graph degree is from the dependency graph only, so you can see connectivity with{' '}
+                <strong className="font-medium text-foreground/80">0</strong> touches if recent commits
+                did not hit those paths or paths do not match the service inventory.
+              </p>
               <div className="mt-2 max-h-[280px] overflow-y-auto">
                 <table className="w-full text-left text-[11px]">
                   <thead>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { Suspense, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, CheckCircle2, Clock } from 'lucide-react'
@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { ExportMenu } from '@/components/export/ExportMenu'
 import type { CsvSection } from '@/lib/export/csv-export'
 
-export default function AgentStatusPage() {
+function AgentStatusPageContent() {
   const queryClient = useQueryClient()
   const [feedback, setFeedback] = useState<string | null>(null)
   const humanReviewExportRef = useRef<HTMLDivElement>(null)
@@ -275,5 +275,15 @@ export default function AgentStatusPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function AgentStatusPage() {
+  return (
+    <Suspense
+      fallback={<div className="py-20 text-center text-sm text-muted-foreground">Loading…</div>}
+    >
+      <AgentStatusPageContent />
+    </Suspense>
   )
 }

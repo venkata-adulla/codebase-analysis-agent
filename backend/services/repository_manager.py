@@ -29,19 +29,29 @@ class RepositoryManager:
         self.github_client: Optional[Github] = None
         self._clone_depth = int(getattr(settings, "git_clone_depth", 1) or 0)
 
-        if settings.github_token:
+        _gh = (os.environ.get("GITHUB_TOKEN") or settings.github_token or "").strip()
+        if _gh:
             try:
-                self.github_client = Github(settings.github_token)
+                self.github_client = Github(_gh)
                 logger.info("GitHub client initialized")
             except Exception as e:
                 logger.warning(f"Failed to initialize GitHub client: {e}")
 
-    def _maybe_authenticate_github_https_url(self, url: str) -> str:
+    def _github_pat_for_clone(self, request_token: Optional[str]) -> str:
+        """Prefer a one-off token from the analyze request, else server ``GITHUB_TOKEN``."""
+        rt = (request_token or "").strip()
+        if rt:
+            return rt
+        return (os.environ.get("GITHUB_TOKEN") or settings.github_token or "").strip()
+
+    def _maybe_authenticate_github_https_url(
+        self, url: str, request_token: Optional[str] = None
+    ) -> str:
         """
         Embed PAT for https://github.com/... so `git clone` works for private repos
         without a machine credential helper. Uses GitHub-recommended x-access-token form.
         """
-        tok = (settings.github_token or "").strip()
+        tok = self._github_pat_for_clone(request_token)
         if not tok:
             return url
         u = url.strip()
@@ -60,22 +70,37 @@ class RepositoryManager:
         self,
         owner: str,
         repo: str,
-        branch: Optional[str] = None
+        branch: Optional[str] = None,
+        github_token: Optional[str] = None,
     ) -> str:
         """Clone a repository from GitHub."""
         clone_url = f"https://github.com/{owner}/{repo}.git"
 
-        if self.github_client:
+        gh_api = None
+        rt = (github_token or "").strip()
+        if rt:
             try:
-                github_repo = self.github_client.get_repo(f"{owner}/{repo}")
+                gh_api = Github(rt)
+            except Exception as e:
+                logger.warning("Invalid request GitHub token for API lookup: %s", e)
+        elif self.github_client:
+            gh_api = self.github_client
+
+        if gh_api:
+            try:
+                github_repo = gh_api.get_repo(f"{owner}/{repo}")
                 clone_url = github_repo.clone_url
             except Exception as e:
-                logger.warning(f"Github token available but unable to resolve repo via API: {e}. Falling back to https URL")
+                logger.warning(
+                    "GitHub token available but unable to resolve repo via API: %s. "
+                    "Falling back to https URL",
+                    e,
+                )
 
         try:
             repo_id = str(uuid.uuid4())
             local_path = self.repositories_dir / repo_id
-            clone_url = self._maybe_authenticate_github_https_url(clone_url)
+            clone_url = self._maybe_authenticate_github_https_url(clone_url, github_token)
             self._clone_with_branch_fallback(clone_url, local_path, branch)
             logger.info("Cloned %s/%s to %s", owner, repo, local_path)
             return str(local_path)
@@ -88,14 +113,15 @@ class RepositoryManager:
     def clone_from_url(
         self,
         url: str,
-        branch: Optional[str] = None
+        branch: Optional[str] = None,
+        github_token: Optional[str] = None,
     ) -> str:
         """Clone a repository from a Git URL."""
         try:
             repo_id = str(uuid.uuid4())
             local_path = self.repositories_dir / repo_id
             raw = url.strip()
-            clone_url = self._maybe_authenticate_github_https_url(raw)
+            clone_url = self._maybe_authenticate_github_https_url(raw, github_token)
             self._clone_with_branch_fallback(clone_url, local_path, branch)
             logger.info("Cloned %s to %s", _redact_git_url(raw), local_path)
             return str(local_path)
@@ -169,6 +195,18 @@ class RepositoryManager:
             )
         if "authentication failed" in low or "could not read username" in low:
             return "Authentication failed while cloning repository. Check repository access/token."
+        if (
+            "returned error: 403" in low
+            or "write access to repository not granted" in low
+            or "requested url returned error: 403" in low
+        ):
+            return (
+                "GitHub refused access (403). Your token cannot read this repository. "
+                "For a fine-grained PAT: add this repo under “Repository access” and grant "
+                "“Contents: Read”. For a classic PAT: enable the “repo” scope. "
+                "If the repo is under an organization, authorize SSO for the token (GitHub → "
+                "token settings). Confirm the token’s account has access to the repo."
+            )
         if "connect tunnel failed" in low or "failed to connect" in low:
             return "Unable to reach Git host from API server. Check outbound network/proxy settings."
         return f"Git clone failed: {raw}"

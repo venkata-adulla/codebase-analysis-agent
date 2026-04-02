@@ -171,15 +171,19 @@ export default function AnalyzePage() {
   const [gitUrl, setGitUrl] = useState('')
   const [ghOwner, setGhOwner] = useState('')
   const [ghRepo, setGhRepo] = useState('')
+  const [githubPat, setGithubPat] = useState('')
   const [localPath, setLocalPath] = useState('')
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null)
 
   const analyzeMutation = useMutation({
     mutationFn: async () => {
+      const pat = githubPat.trim()
+      const tokenOpt = pat ? { github_token: pat } : {}
       if (tab === 'url') {
         const response = await api.post('/repositories/analyze', {
           repository_url: gitUrl.trim(),
           branch: branch.trim() || 'main',
+          ...tokenOpt,
         })
         return response.data as { repository_id: string; status: string; message?: string }
       }
@@ -188,6 +192,7 @@ export default function AnalyzePage() {
           github_owner: ghOwner.trim(),
           github_repo: ghRepo.trim(),
           branch: branch.trim() || 'main',
+          ...tokenOpt,
         })
         return response.data as { repository_id: string; status: string; message?: string }
       }
@@ -310,8 +315,10 @@ export default function AnalyzePage() {
           <CardHeader>
             <CardTitle>Connect a codebase</CardTitle>
             <CardDescription>
-              HTTPS Git URLs work for most public repositories. GitHub API mode requires a token on
-              the API server. Local path must be a valid Git checkout on the machine running the API.
+              Public repos work without credentials. For private GitHub repositories, set{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[0.7rem]">GITHUB_TOKEN</code> on
+              the API server or paste an access token below (Git URL / GitHub tabs only). Local path
+              must be a valid Git checkout on the machine running the API.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -384,6 +391,23 @@ export default function AnalyzePage() {
                     value={localPath}
                     onChange={(e) => setLocalPath(e.target.value)}
                   />
+                </div>
+              )}
+              {(tab === 'github' || tab === 'url') && (
+                <div className="sm:col-span-2 space-y-2">
+                  <Label htmlFor="github-pat">GitHub access token (optional)</Label>
+                  <Input
+                    id="github-pat"
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Classic PAT (repo) or fine-grained token with repository access"
+                    value={githubPat}
+                    onChange={(e) => setGithubPat(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Used only for this clone over HTTPS; not stored. Scopes: read access to the
+                    repository (and metadata for API resolution).
+                  </p>
                 </div>
               )}
               <div className="space-y-2 sm:col-span-2">

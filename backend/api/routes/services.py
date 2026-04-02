@@ -26,6 +26,7 @@ def get_db():
         db.close()
 
 
+@router.get("")
 @router.get("/")
 async def list_services(
     repository_id: Optional[str] = Query(None),

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter, defaultdict
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -41,30 +42,210 @@ def _services_for_repo(db: Session, repository_id: str) -> List[Dict[str, Any]]:
     return out
 
 
-def map_file_to_service(rel_path: str, services: List[Dict[str, Any]]) -> Optional[str]:
-    rel = rel_path.replace("\\", "/").strip()
-    best_id = None
-    best_len = -1
+def _relativize_service_paths_if_needed(
+    services: List[Dict[str, Any]], repo_root: Optional[str]
+) -> None:
+    """If DB stored absolute paths under the clone root, make them repo-relative for git path matching."""
+    if not repo_root:
+        return
+    try:
+        base = Path(repo_root).resolve()
+    except OSError:
+        return
     for s in services:
-        fp = s.get("file_path") or ""
-        if not fp:
+        raw = (s.get("file_path") or "").strip()
+        if not raw:
             continue
-        if rel == fp or rel.startswith(fp + "/"):
-            if len(fp) > best_len:
-                best_len = len(fp)
-                best_id = s["id"]
+        try:
+            p = Path(raw)
+        except OSError:
+            continue
+        if not p.is_absolute():
+            continue
+        try:
+            rel = p.resolve().relative_to(base)
+            s["file_path"] = str(rel).replace("\\", "/")
+        except ValueError:
+            logger.debug(
+                "temporal: service path not under clone root, leaving as-is: %s",
+                raw[:120],
+            )
+
+
+# Suffixes that suggest ``file_path`` is a file; we also match commits under its parent folder.
+_KNOWN_SOURCE_SUFFIXES = (
+    ".py",
+    ".pyi",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".ts",
+    ".tsx",
+    ".java",
+    ".go",
+    ".rs",
+    ".rb",
+    ".php",
+    ".cs",
+    ".kt",
+    ".swift",
+    ".scala",
+    ".c",
+    ".h",
+    ".cpp",
+    ".hpp",
+    ".cc",
+    ".vue",
+    ".svelte",
+    ".m",
+    ".mm",
+    ".sql",
+    ".gradle",
+    ".xml",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".mdx",
+)
+
+
+def _normalize_repo_relative_path(path: str) -> str:
+    p = (path or "").replace("\\", "/").strip()
+    while p.startswith("./"):
+        p = p[2:]
+    p = p.lstrip("/")
+    while "//" in p:
+        p = p.replace("//", "/")
+    return p
+
+
+_NAME_SLUG_GENERIC = frozenset(
+    {
+        "src",
+        "lib",
+        "core",
+        "main",
+        "app",
+        "test",
+        "tests",
+        "pkg",
+        "util",
+        "utils",
+        "common",
+        "shared",
+        "internal",
+        "public",
+        "private",
+        "java",
+        "go",
+        "js",
+        "ts",
+        "py",
+        "php",
+        "rb",
+    }
+)
+
+
+def _temporal_service_name_slug(s: Dict[str, Any]) -> Optional[str]:
+    """Short display name usable as a repo top-level or folder prefix (not a UUID)."""
+    nm = (s.get("name") or "").strip()
+    if len(nm) < 2 or len(nm) > 64:
+        return None
+    if re.match(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        nm,
+        re.I,
+    ):
+        return None
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", nm):
+        return None
+    low = nm.lower()
+    if low in _NAME_SLUG_GENERIC:
+        return None
+    return low
+
+
+def _service_path_prefixes(services: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
+    """
+    (service_id, path_prefix) pairs for longest-prefix matching.
+    Includes the stored file_path plus, for file-like paths, the parent directory so
+    sibling files in the same module map to the same service.
+    When ``file_path`` is empty, falls back to a unique non-generic service ``name`` slug
+    (e.g. ``api``, ``backend``) so commits under ``api/...`` still map.
+    """
+    slug_counts: Counter[str] = Counter()
+    for s in services:
+        slug = _temporal_service_name_slug(s)
+        if slug:
+            slug_counts[slug] += 1
+
+    pairs: List[Tuple[str, str]] = []
+    seen: Set[Tuple[str, str]] = set()
+    for s in services:
+        sid = str(s.get("id") or "").strip()
+        if not sid:
+            continue
+        fp = _normalize_repo_relative_path(s.get("file_path") or "")
+        if fp:
+            key = (sid, fp)
+            if key not in seen:
+                seen.add(key)
+                pairs.append(key)
+            low = fp.lower()
+            if any(low.endswith(ext) for ext in _KNOWN_SOURCE_SUFFIXES) and "/" in fp:
+                parent = fp.rsplit("/", 1)[0]
+                if parent:
+                    key = (sid, parent)
+                    if key not in seen:
+                        seen.add(key)
+                        pairs.append(key)
+        slug = _temporal_service_name_slug(s)
+        if slug and slug_counts.get(slug, 0) == 1:
+            key = (sid, slug)
+            if key not in seen:
+                seen.add(key)
+                pairs.append(key)
+    pairs.sort(key=lambda x: len(x[1]), reverse=True)
+    return pairs
+
+
+def map_file_to_service(rel_path: str, services: List[Dict[str, Any]]) -> Optional[str]:
+    """Map a repo-relative commit path to a service id (longest path prefix wins)."""
+    return map_file_to_service_with_prefixes(rel_path, _service_path_prefixes(services))
+
+
+def map_file_to_service_with_prefixes(
+    rel_path: str, path_prefixes: List[Tuple[str, str]]
+) -> Optional[str]:
+    rel = _normalize_repo_relative_path(rel_path)
+    if not rel:
+        return None
+    rel_low = rel.lower()
+    best_id: Optional[str] = None
+    best_len = -1
+    for sid, prefix in path_prefixes:
+        if not prefix:
+            continue
+        pfx_low = prefix.lower()
+        if rel_low == pfx_low or rel_low.startswith(pfx_low + "/"):
+            if len(prefix) > best_len:
+                best_len = len(prefix)
+                best_id = sid
     return best_id
 
 
 def _map_file_to_service_cached(
     rel_path: str,
-    services: List[Dict[str, Any]],
+    path_prefixes: List[Tuple[str, str]],
     cache: Dict[str, Optional[str]],
 ) -> Optional[str]:
-    rel = rel_path.replace("\\", "/").strip()
+    rel = _normalize_repo_relative_path(rel_path)
     if rel in cache:
         return cache[rel]
-    sid = map_file_to_service(rel, services)
+    sid = map_file_to_service_with_prefixes(rel, path_prefixes)
     cache[rel] = sid
     return sid
 
@@ -75,14 +256,14 @@ def _service_name_by_id(services: List[Dict[str, Any]]) -> Dict[str, str]:
 
 def _commit_modules(
     c: CommitRecord,
-    services: List[Dict[str, Any]],
+    path_prefixes: List[Tuple[str, str]],
     file_service_cache: Optional[Dict[str, Optional[str]]] = None,
 ) -> Tuple[List[str], List[str]]:
     cache = file_service_cache if file_service_cache is not None else {}
     mods: Set[str] = set()
     touched: List[str] = []
     for f in c.files_changed:
-        sid = _map_file_to_service_cached(f, services, cache)
+        sid = _map_file_to_service_cached(f, path_prefixes, cache)
         if sid:
             mods.add(sid)
             touched.append(f)
@@ -91,7 +272,7 @@ def _commit_modules(
 
 def _window_churn(
     commits: List[CommitRecord],
-    services: List[Dict[str, Any]],
+    path_prefixes: List[Tuple[str, str]],
     days: int,
     end: datetime,
     file_service_cache: Optional[Dict[str, Optional[str]]] = None,
@@ -101,7 +282,7 @@ def _window_churn(
     for c in commits:
         if c.committed_at < start or c.committed_at > end:
             continue
-        mods, _ = _commit_modules(c, services, file_service_cache)
+        mods, _ = _commit_modules(c, path_prefixes, file_service_cache)
         for m in mods:
             churn[m] += 1
     return dict(churn)
@@ -109,13 +290,13 @@ def _window_churn(
 
 def _churn_from_commit_list(
     commits: List[CommitRecord],
-    services: List[Dict[str, Any]],
+    path_prefixes: List[Tuple[str, str]],
     file_service_cache: Optional[Dict[str, Optional[str]]] = None,
 ) -> Dict[str, int]:
     """Module touch counts across the given commits only (temporal sample window)."""
     churn: Dict[str, int] = defaultdict(int)
     for c in commits:
-        mods, _ = _commit_modules(c, services, file_service_cache)
+        mods, _ = _commit_modules(c, path_prefixes, file_service_cache)
         for m in mods:
             churn[m] += 1
     return dict(churn)
@@ -123,7 +304,7 @@ def _churn_from_commit_list(
 
 def _split_commit_churn_halves(
     commits: List[CommitRecord],
-    services: List[Dict[str, Any]],
+    path_prefixes: List[Tuple[str, str]],
     file_service_cache: Optional[Dict[str, Optional[str]]] = None,
 ) -> Tuple[Dict[str, int], Dict[str, int]]:
     """Older half vs newer half (by commit date) for drift acceleration hints."""
@@ -132,13 +313,13 @@ def _split_commit_churn_halves(
     ordered = sorted(commits, key=lambda c: c.committed_at)
     n = len(ordered)
     if n == 1:
-        return {}, _churn_from_commit_list(ordered, services, file_service_cache)
+        return {}, _churn_from_commit_list(ordered, path_prefixes, file_service_cache)
     mid = n // 2
     first = ordered[:mid]
     second = ordered[mid:]
     return (
-        _churn_from_commit_list(first, services, file_service_cache),
-        _churn_from_commit_list(second, services, file_service_cache),
+        _churn_from_commit_list(first, path_prefixes, file_service_cache),
+        _churn_from_commit_list(second, path_prefixes, file_service_cache),
     )
 
 
@@ -165,6 +346,7 @@ def build_timeline_events(
     commits: List[CommitRecord],
     prs: List[PRRecord],
     services: List[Dict[str, Any]],
+    path_prefixes: List[Tuple[str, str]],
     max_commit_events: int = 10,
     max_pr_events: int = 10,
     file_service_cache: Optional[Dict[str, Optional[str]]] = None,
@@ -176,7 +358,7 @@ def build_timeline_events(
     names = _service_name_by_id(services)
 
     for c in commits:
-        mods, _ = _commit_modules(c, services, file_service_cache)
+        mods, _ = _commit_modules(c, path_prefixes, file_service_cache)
         big = len(c.files_changed) >= 18 or c.total_lines_changed >= 400
         commit_events.append(
             {
@@ -263,6 +445,10 @@ def _drift_statements_sample(
     n_commits: int,
     n_prs: int,
     n_comments: int,
+    *,
+    n_services: int,
+    n_services_with_paths: int,
+    pr_skip_reason: Optional[str],
 ) -> List[str]:
     """Drift lines scoped to the sampled commits / PRs / comments only."""
     statements: List[str] = []
@@ -313,16 +499,47 @@ def _drift_statements_sample(
             f"Most activity in sample: «{names.get(sid, sid)}» ({n} file→module touch(es))."
         )
     elif n_commits > 0 and not churn_full:
-        statements.append(
-            "Sampled commits did not map to known service modules—re-run repository analysis or check file paths."
-        )
+        if n_services == 0:
+            statements.append(
+                "No services are in the inventory yet—finish repository analysis (documentation / "
+                "dependency mapping) so commit files can be tied to modules."
+            )
+        elif n_services_with_paths == 0:
+            statements.append(
+                "Services exist but none have a stored file path—re-run analysis or check persistence; "
+                "temporal mapping matches commit paths to each service's path prefix."
+            )
+        else:
+            statements.append(
+                "Sampled commits did not touch paths that match your service path prefixes—"
+                "if the repo layout changed, re-run analysis; commits use repo-relative paths."
+            )
 
     if n_prs:
         statements.append(f"GitHub sample: {n_prs} merged PR(s) (newest first).")
     elif n_commits > 0:
-        statements.append(
-            "GitHub merged-PR sample not loaded—set GITHUB_TOKEN and repository `github_owner` / `github_repo` to include PRs in drift."
-        )
+        if pr_skip_reason == "no_github_coords":
+            statements.append(
+                "Merged PRs are not loaded—this repository has no GitHub owner/name on record. "
+                "Start analysis from the GitHub tab or a github.com URL so PR sampling can run."
+            )
+        elif pr_skip_reason == "no_token":
+            statements.append(
+                "Merged PRs are not loaded—set `GITHUB_TOKEN` on the API server. "
+                "Tokens entered only on Analyze are used for cloning and are not stored for GitHub API calls."
+            )
+        elif pr_skip_reason == "github_api_error":
+            statements.append(
+                "Merged PRs could not be read from GitHub—check token access to the repository "
+                "and that owner/repo names are correct."
+            )
+        elif pr_skip_reason == "github_sdk_missing":
+            statements.append("Merged PRs are unavailable—PyGithub is not installed on the API server.")
+        else:
+            statements.append(
+                "No merged PRs matched the current time filters, or this repository has little/no "
+                "merged PR history on GitHub in the sampled window."
+            )
 
     if n_comments:
         statements.append(f"GitHub sample: {n_comments} recent PR comment(s) for theme scanning.")
@@ -590,6 +807,9 @@ def run_temporal_analysis(
 
     branch = repo_row.branch or "main"
     services = _services_for_repo(db, resolved)
+    _relativize_service_paths_if_needed(services, repo_row.local_path)
+    path_prefixes = _service_path_prefixes(services)
+    n_services_with_paths = sum(1 for s in services if (s.get("file_path") or "").strip())
     file_service_cache: Dict[str, Optional[str]] = {}
     commits = list_commits(
         repo_row.local_path,
@@ -602,7 +822,7 @@ def run_temporal_analysis(
     commits = commits[:max_commits]
 
     owner, gh_repo = repo_row.github_owner, repo_row.github_repo
-    prs, comment_samples = fetch_pull_requests(
+    prs, comment_samples, pr_skip_reason = fetch_pull_requests(
         owner or "",
         gh_repo or "",
         since=pr_since,
@@ -616,11 +836,11 @@ def run_temporal_analysis(
         commits = [
             c
             for c in commits
-            if sid in _commit_modules(c, services, file_service_cache)[0]
+            if sid in _commit_modules(c, path_prefixes, file_service_cache)[0]
         ][:max_commits]
 
-    churn_full = _churn_from_commit_list(commits, services, file_service_cache)
-    churn_first, churn_second = _split_commit_churn_halves(commits, services, file_service_cache)
+    churn_full = _churn_from_commit_list(commits, path_prefixes, file_service_cache)
+    churn_first, churn_second = _split_commit_churn_halves(commits, path_prefixes, file_service_cache)
     degrees = _graph_degrees(resolved)
     names = _service_name_by_id(services)
 
@@ -633,12 +853,16 @@ def run_temporal_analysis(
         len(commits),
         len(prs),
         len(comment_samples),
+        n_services=len(services),
+        n_services_with_paths=n_services_with_paths,
+        pr_skip_reason=pr_skip_reason,
     )
     heatmap = build_heatmap(churn_full, services)
     timeline = build_timeline_events(
         commits,
         prs,
         services,
+        path_prefixes,
         max_commit_events=max_commits,
         max_pr_events=max_prs,
         file_service_cache=file_service_cache,
@@ -709,6 +933,8 @@ def run_temporal_analysis(
         "prs_loaded": len(prs),
         "comments_loaded": len(comment_samples),
         "modules_mapped": len(services),
+        "services_with_paths": n_services_with_paths,
+        "pr_skip_reason": pr_skip_reason,
         "time_range": time_range,
     }
     logger.info(

@@ -89,6 +89,8 @@ class RepositoryAnalyzeRequest(BaseModel):
     github_owner: Optional[str] = None
     github_repo: Optional[str] = None
     branch: Optional[str] = "main"
+    # Fine-grained or classic PAT with repo scope; used only for this clone (not stored).
+    github_token: Optional[str] = None
 
 
 class RepositoryStatusResponse(BaseModel):
@@ -193,16 +195,23 @@ def run_clone_and_analysis_task(repository_id: str, payload_dict: dict) -> None:
             "Cloning repository…",
         )
 
+        raw_gh_tok = payload_dict.get("github_token")
+        gh_tok_s = (
+            str(raw_gh_tok).strip() if raw_gh_tok is not None else None
+        ) or None
+
         if payload_dict.get("github_owner") and payload_dict.get("github_repo"):
             repo_path = repo_manager.clone_from_github(
                 str(payload_dict["github_owner"]).strip(),
                 str(payload_dict["github_repo"]).strip(),
                 branch,
+                github_token=gh_tok_s,
             )
         elif payload_dict.get("repository_url"):
             repo_path = repo_manager.clone_from_url(
                 str(payload_dict["repository_url"]).strip(),
                 branch,
+                github_token=gh_tok_s,
             )
         elif payload_dict.get("repository_path"):
             repo_path = repo_manager.use_local_path(str(payload_dict["repository_path"]).strip())
@@ -460,6 +469,7 @@ async def get_analysis_status(
     )
 
 
+@router.get("")
 @router.get("/")
 async def list_repositories(
     api_key: bool = Depends(verify_api_key)

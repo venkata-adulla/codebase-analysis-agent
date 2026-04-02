@@ -47,7 +47,7 @@ async function postChatJson(body: {
   history: { role: string; content: string }[]
 }) {
   const apiKey = process.env.NEXT_PUBLIC_API_KEY || 'dev-local-key'
-  const res = await fetch('/api/chat/', {
+  const res = await fetch('/api/chat', {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -352,7 +352,18 @@ export function CodebaseChatPanel() {
         })
       }
     } catch (e) {
-      const err = e instanceof Error ? e.message : 'Request failed'
+      let err = e instanceof Error ? e.message : 'Request failed'
+      if (/OPENAI_API_KEY|openai_api_key/i.test(err)) {
+        err =
+          'The API server does not have an OpenAI key in its environment. If you use Docker Compose, set `OPENAI_API_KEY` in the **repo root** `.env` (same file as `POSTGRES_PASSWORD`), run `docker compose up -d --build`, and restart the backend. Keys in `backend/.env` alone are not always visible inside the container.'
+      } else if (err.trim().startsWith('{') && err.includes('detail')) {
+        try {
+          const j = JSON.parse(err) as { detail?: string }
+          if (j.detail) err = j.detail
+        } catch {
+          /* keep raw */
+        }
+      }
       try {
         const data = await postChatJson({ query: q, repoId: effectiveRepo, history })
         patchMessage(assistantId, {

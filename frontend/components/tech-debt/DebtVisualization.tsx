@@ -1,5 +1,6 @@
 'use client'
 
+import type { CSSProperties } from 'react'
 import {
   PieChart,
   Pie,
@@ -29,6 +30,18 @@ const COLORS = {
   high: '#ea580c',
   medium: '#d4a017',
   low: '#28bd5a',
+}
+
+/** Recharts default tooltip text can stay dark while contentStyle uses a dark panel — force readable contrast. */
+const chartTooltipProps = {
+  contentStyle: {
+    backgroundColor: 'hsl(222 47% 11%)',
+    border: '1px solid hsl(217 33% 28%)',
+    borderRadius: 8,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+  } satisfies CSSProperties,
+  labelStyle: { color: '#f8fafc', fontWeight: 600, fontSize: 13 } satisfies CSSProperties,
+  itemStyle: { color: '#e2e8f0', fontSize: 13 } satisfies CSSProperties,
 }
 
 export default function DebtVisualization({ metrics, report }: DebtVisualizationProps) {
@@ -191,13 +204,7 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
                   <Cell key={`cell-${index}`} fill={Object.values(COLORS)[index % 4]} />
                 ))}
               </Pie>
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(222 47% 8%)',
-                  border: '1px solid hsl(217 33% 20%)',
-                  borderRadius: 8,
-                }}
-              />
+              <Tooltip {...chartTooltipProps} />
               <Legend
                 layout="vertical"
                 align="right"
@@ -219,13 +226,7 @@ export default function DebtVisualization({ metrics, report }: DebtVisualization
             <BarChart data={severityData}>
               <XAxis dataKey="name" stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 12 }} />
               <YAxis stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 12 }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(222 47% 8%)',
-                  border: '1px solid hsl(217 33% 20%)',
-                  borderRadius: 8,
-                }}
-              />
+              <Tooltip {...chartTooltipProps} />
               <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

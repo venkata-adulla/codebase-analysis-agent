@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -69,10 +70,16 @@ def _cosine(a: List[float], b: List[float]) -> float:
 
 
 def _get_openai_client() -> Optional[OpenAI]:
-    if not settings.openai_api_key:
+    """
+    Prefer process environment (Docker Compose / K8s inject keys here). Pydantic ``env_file``
+    paths like ``.env`` often do not exist inside containers even when vars are set.
+    """
+    s = get_settings()
+    key = (os.environ.get("OPENAI_API_KEY") or s.openai_api_key or "").strip()
+    if not key:
         return None
     try:
-        return OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url or None)
+        return OpenAI(api_key=key, base_url=s.openai_base_url or None)
     except Exception as exc:
         logger.warning("OpenAI client init failed: %s", exc)
         return None

@@ -2,6 +2,14 @@ import axios from 'axios'
 
 const apiKey = process.env.NEXT_PUBLIC_API_KEY || 'dev-local-key'
 
+/**
+ * Browser: always call the **page origin** + `/api` (e.g. `http://localhost:3000/api`). Next.js
+ * rewrites proxy to the real API (`http://backend:8000` inside Docker). Never use Docker hostnames
+ * like `backend` in the browser — they are not resolvable on the host machine.
+ *
+ * We set baseURL per request in the browser so a stale bundle or env cannot point axios at
+ * `http://backend:8000`.
+ */
 const api = axios.create({
   baseURL: '/api',
   headers: {
@@ -11,8 +19,8 @@ const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
-  if (!config.baseURL?.startsWith('/api') && process.env.NEXT_PUBLIC_API_URL) {
-    config.baseURL = process.env.NEXT_PUBLIC_API_URL
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    config.baseURL = `${window.location.origin}/api`
   }
   return config
 })

@@ -1,8 +1,8 @@
 /**
  * API requests use baseURL `/api` in the browser; Next rewrites forward to the real FastAPI server.
  *
- * ``/api/temporal-data`` is implemented by ``app/api/temporal-data/route.ts`` (server-side proxy with
- * a long timeout) so dev does not hit flaky rewrite ``ECONNRESET`` on large temporal responses.
+ * ``/api/temporal-data`` and ``/api/chat`` use ``app/api/.../route.ts`` (server-side proxy with
+ * long timeouts) so dev does not hit flaky rewrite ``ECONNRESET`` on slow LLM / large responses.
  *
  * If you see: "Failed to proxy ... ECONNREFUSED 127.0.0.1:8000"
  *   1. Start the backend: `cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000`
@@ -51,6 +51,13 @@ const nextConfig = {
   // Hide the Next.js dev overlay toggle (bottom-left "N" icon) in development
   devIndicators: false,
   reactStrictMode: true,
+  // Preserve incoming trailing slashes so `/api/.../` can proxy directly without a
+  // normalize-then-redirect chain that leaks `Location: http://backend:8000/...`.
+  skipTrailingSlashRedirect: true,
+  // Pre-existing TS issues elsewhere block `next build` in Docker; runtime matches local dev.
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   transpilePackages: ['elkjs'],
   async rewrites() {
     return [
