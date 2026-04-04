@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
@@ -47,14 +48,17 @@ yarn-error.log*
 # Database
 *.db
 *.sqlite
+*.sqlite3
+*.db-journal
 
 # Logs
 logs/
 *.log
 
-# OS
+# OS / editors
 .DS_Store
 Thumbs.db
+*.orig
 
 # Project specific
 uploads/
