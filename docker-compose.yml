@@ -1,4 +1,27 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres-codebase-analysis
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-codebase_analysis}
+    ports:
+      - "${POSTGRES_PUBLISH_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   neo4j:
     image: neo4j:5.23-community
     container_name: neo4j-codebase-analysis
@@ -22,6 +45,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 60s
 
   redis:
     image: redis:7-alpine
@@ -38,6 +62,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   backend:
     build:
@@ -54,6 +79,12 @@ services:
       NEO4J_USER: neo4j
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      POSTGRES_WAIT_HOST: ${POSTGRES_WAIT_HOST:-postgres}
+      POSTGRES_WAIT_PORT: ${POSTGRES_WAIT_PORT:-5432}
+      NEO4J_WAIT_HOST: ${NEO4J_WAIT_HOST:-neo4j}
+      NEO4J_WAIT_PORT: ${NEO4J_WAIT_PORT:-7687}
+      REDIS_WAIT_HOST: ${REDIS_WAIT_HOST:-redis}
+      REDIS_WAIT_PORT: ${REDIS_WAIT_PORT:-6379}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     healthcheck:
@@ -61,12 +92,14 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 90s
+      start_period: 45s
     depends_on:
+      postgres:
+        condition: service_healthy
       neo4j:
         condition: service_healthy
       redis:
-        condition: service_healthy
+        condition: service_started
     networks:
       - app-network
     volumes:
@@ -74,6 +107,7 @@ services:
       - backend_uploads:/app/uploads
 
 volumes:
+  postgres_data:
   neo4j_data:
   neo4j_logs:
   neo4j_plugins:
